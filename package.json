@@ -1,7 +1,7 @@
 {
   "name": "canvas-for-chatgpt",
   "displayName": "Canvas for ChatGPT",
-  "version": "0.1.0-alpha",
+  "version": "0.1.0",
   "description": "Transform ChatGPT into your personal canvas with custom backgrounds, collapsible messages, smart shortcuts, and productivity styling.",
   "author": "AryanTechie-007",
   "homepage": "https://github.com/AryanTechie-007/Canvas-For-ChatGPT",
@@ -37,6 +37,7 @@
     "typescript": "5.3.3"
   },
   "manifest": {
+    "version_name": "0.1.0-alpha",
     "permissions": [
       "storage"
     ],
