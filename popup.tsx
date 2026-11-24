@@ -16,7 +16,7 @@ type Cfg = {
 
 const DEFAULT_CFG: Cfg = {
     enabled: true,
-    backgroundImageUrl: "",
+    backgroundImageUrl: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80",
     mainImageOpacity: 0.5,
     blurAmount: 70,
     gradientOpacity: 1.0,
@@ -106,9 +106,19 @@ const Popup = () => {
     const [cfg, setCfg] = useState<Cfg | null>(null)
     const [err, setErr] = useState<string | null>(null)
     const [customUrl, setCustomUrl] = useState("")
+    const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
-    // Fondos predeterminados (sin imagenes preestablecidas)
-    const defaultBackgrounds: string[] = []
+    // 4 Fondos predeterminados solicitados: Mountain, Space, Forest, Dog Dance
+    const defaultPresets = [
+        { name: "Mountain", url: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80" },
+        { name: "Space", url: "https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1920&q=80" },
+        { name: "Forest", url: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&q=80" },
+        { name: "Dog Dance", url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExN3kycXV3MzR4cDV2OXFuZjh0dmZlazRmdWgwOWJ6N3N2aHl3bDJ1YSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/VzH4jP7ppWF8dgCxcg/giphy.gif" }
+    ]
+    const defaultUrls = defaultPresets.map(p => p.url)
+
+    const isVideoUrl = (url: string) =>
+        url.startsWith("data:video/") || /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url)
 
     // Cargar configuración: desde storage primero (siempre disponible), y luego sincronizar con pestaña activa si está en ChatGPT
     useEffect(() => {
@@ -162,7 +172,7 @@ const Popup = () => {
         if (!cfg || !url.trim()) return
         
         const savedBackgrounds = cfg.savedBackgrounds || []
-        if (!savedBackgrounds.includes(url) && !defaultBackgrounds.includes(url)) {
+        if (!savedBackgrounds.includes(url) && !defaultUrls.includes(url)) {
             const newSavedBackgrounds = [url, ...savedBackgrounds].slice(0, 50) // Máximo 50 fondos guardados
             await patch({ savedBackgrounds: newSavedBackgrounds })
         }
@@ -170,7 +180,7 @@ const Popup = () => {
 
     const selectBackground = async (url: string) => {
         await patch({ backgroundImageUrl: url })
-        if (url && !defaultBackgrounds.includes(url)) {
+        if (url && !defaultUrls.includes(url)) {
             await addCustomBackground(url)
         }
     }
@@ -188,16 +198,32 @@ const Popup = () => {
         }
     }
 
-    // Obtener todos los fondos disponibles
-    const getAllBackgrounds = () => {
-        const saved = cfg?.savedBackgrounds || []
-        return [...defaultBackgrounds, ...saved]
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        if (file.size > 50 * 1024 * 1024) {
+            alert("File is larger than 50MB. Please select a smaller file for smooth performance.")
+            return
+        }
+
+        const reader = new FileReader()
+        reader.onload = async () => {
+            const dataUrl = reader.result as string
+            if (dataUrl) {
+                await selectBackground(dataUrl)
+            }
+        }
+        reader.readAsDataURL(file)
+        e.target.value = ""
     }
 
     // Previsualización pequeña del fondo (solo URL, sin leer de la página)
     const previewStyle = useMemo(
         () => ({
-            backgroundImage: cfg?.backgroundImageUrl ? `url("${cfg.backgroundImageUrl}")` : "none",
+            backgroundImage: cfg?.backgroundImageUrl && !isVideoUrl(cfg.backgroundImageUrl)
+                ? `url("${cfg.backgroundImageUrl}")`
+                : "none",
             filter: `blur(${(cfg?.blurAmount ?? 0) / 4}px)`,
             opacity: cfg?.mainImageOpacity ?? 1
         }),
@@ -206,6 +232,8 @@ const Popup = () => {
 
     if (err) return <Shell><div className="error">{err}</div></Shell>
     if (!cfg) return <Shell><div className="loading">Loading…</div></Shell>
+
+    const activeIsVideo = cfg.backgroundImageUrl && isVideoUrl(cfg.backgroundImageUrl)
 
     return (
         <Shell>
@@ -221,29 +249,98 @@ const Popup = () => {
             </header>
 
             <div className="preview" style={previewStyle as React.CSSProperties}>
-                {!cfg.backgroundImageUrl && <span className="preview-hint">No image</span>}
+                {activeIsVideo ? (
+                    <video
+                        src={cfg.backgroundImageUrl}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                ) : !cfg.backgroundImageUrl ? (
+                    <span className="preview-hint">No media selected</span>
+                ) : null}
             </div>
 
-            {/* Tarjeta: Imagen */}
+            {/* Tarjeta: Media / Fondos */}
             <section className="card">
                 <div className="card-head">
                     <IconImage />
-                    <h4>Background image</h4>
+                    <h4>Background Canvas</h4>
                 </div>
                 
-                {/* Galería de fondos guardados */}
-                {getAllBackgrounds().length > 0 && (
-                    <Field label="Saved Backgrounds">
+                {/* Presets: Mountain, Space, Forest, Dog Dance */}
+                <Field label="Presets (Mountain, Space, Forest, Dog Dance)">
+                    <div className="background-gallery">
+                        {defaultPresets.map((preset) => {
+                            const isSelected = cfg.backgroundImageUrl === preset.url
+                            return (
+                                <div 
+                                    key={preset.url}
+                                    className={`background-item ${isSelected ? 'selected' : ''}`}
+                                    onClick={() => selectBackground(preset.url)}
+                                    style={{ backgroundImage: `url("${preset.url}")` }}
+                                >
+                                    {isSelected && (
+                                        <div className="selected-indicator">✓</div>
+                                    )}
+                                    <div className="background-label">
+                                        {preset.name}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </Field>
+
+                {/* Subir archivo local (imagen, GIF, video) */}
+                <Field label="Upload Media (Image, GIF, Video)">
+                    <div className="upload-row">
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            style={{ display: "none" }}
+                            accept="image/*,video/*"
+                            onChange={handleFileUpload}
+                        />
+                        <button
+                            type="button"
+                            className="upload-btn"
+                            onClick={() => fileInputRef.current?.click()}
+                            title="Upload local image, GIF, or video from your device"
+                        >
+                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="17 8 12 3 7 8" />
+                                <line x1="12" y1="3" x2="12" y2="15" />
+                            </svg>
+                            <span>Upload Image / GIF / Video</span>
+                        </button>
+                    </div>
+                </Field>
+
+                {/* Galería de fondos subidos y guardados */}
+                {(cfg.savedBackgrounds && cfg.savedBackgrounds.length > 0) && (
+                    <Field label="Uploaded & Saved Media">
                         <div className="background-gallery">
-                            {getAllBackgrounds().map((url, index) => {
+                            {cfg.savedBackgrounds.map((url, index) => {
                                 const isSelected = cfg.backgroundImageUrl === url
+                                const isVideo = isVideoUrl(url)
                                 return (
                                     <div 
                                         key={url}
                                         className={`background-item ${isSelected ? 'selected' : ''}`}
                                         onClick={() => selectBackground(url)}
-                                        style={{ backgroundImage: `url("${url}")` }}
+                                        style={!isVideo ? { backgroundImage: `url("${url}")` } : undefined}
                                     >
+                                        {isVideo && (
+                                            <video
+                                                src={url}
+                                                muted
+                                                style={{ width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none" }}
+                                            />
+                                        )}
                                         {isSelected && (
                                             <div className="selected-indicator">✓</div>
                                         )}
@@ -253,12 +350,12 @@ const Popup = () => {
                                                 e.stopPropagation()
                                                 removeCustomBackground(url)
                                             }}
-                                            title="Remove background"
+                                            title="Remove media"
                                         >
                                             ✕
                                         </button>
                                         <div className="background-label">
-                                            {`#${index + 1}`}
+                                            {isVideo ? `Video #${index + 1}` : `Media #${index + 1}`}
                                         </div>
                                     </div>
                                 )
@@ -268,14 +365,14 @@ const Popup = () => {
                 )}
 
                 {/* Input para URL personalizada */}
-                <Field label="Add Custom URL">
+                <Field label="Add Web URL (Image, GIF, Video)">
                     <div className="custom-url-input">
                         <div className="input-icon">
                             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
                                 <path d="M3.9 12a5 5 0 0 1 5-5h3v2h-3a3 3 0 0 0 0 6h3v2h-3a5 5 0 0 1-5-5Zm7.2 1h1.8v-2h-1.8v2Zm3-6h3a5 5 0 0 1 0 10h-3v-2h3a3 3 0 0 0 0-6h-3V7Z" />
                             </svg>
                             <input
-                                placeholder="https://example.com/image.jpg"
+                                placeholder="https://example.com/media.mp4 or .jpg"
                                 value={customUrl}
                                 onChange={(e) => setCustomUrl(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleCustomUrlSubmit()}
@@ -285,7 +382,7 @@ const Popup = () => {
                             className="add-btn"
                             onClick={handleCustomUrlSubmit}
                             disabled={!customUrl.trim()}
-                            title="Add and use this background"
+                            title="Add and use this media URL"
                         >
                             Add
                         </button>
@@ -587,6 +684,20 @@ body {
 }
 .background-item:hover .remove-btn{opacity:1}
 .remove-btn:hover{background:rgba(255,0,0,1)}
+
+.upload-row{
+  display:flex; gap:8px; align-items:center;
+}
+.upload-btn{
+  width:100%; display:flex; align-items:center; justify-content:center; gap:8px;
+  padding:9px 14px; border:1px dashed var(--accent); border-radius:8px;
+  background:rgba(76, 158, 234, 0.08); color:var(--text); font-size:12.5px;
+  cursor:pointer; font-weight:600; transition:all 0.2s ease;
+}
+.upload-btn:hover{
+  background:rgba(76, 158, 234, 0.18); border-color:var(--accent-2);
+}
+.upload-btn svg{stroke:var(--accent)}
 
 .custom-url-input{
   display:flex; gap:8px; align-items:center;

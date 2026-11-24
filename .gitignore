@@ -32,3 +32,6 @@ dist/
 # typescript
 *.tsbuildinfo
 .tsbuildinfo
+
+# local downloads
+preset-backgrounds/

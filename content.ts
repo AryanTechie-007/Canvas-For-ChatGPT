@@ -24,7 +24,7 @@ type Cfg = {
 
 const DEFAULT_CFG: Cfg = {
   enabled: true,
-  backgroundImageUrl: "",
+  backgroundImageUrl: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80",
   mainImageOpacity: 0.5,
   blurAmount: 70,
   gradientOpacity: 1.0,
@@ -85,6 +85,7 @@ const sel = {
 // ------------------------------
 let backgroundEl: HTMLDivElement | null = null
 let imgEl: HTMLImageElement | null = null
+let videoEl: HTMLVideoElement | null = null
 let gradEl: HTMLDivElement | null = null
 const BACKGROUND_ID = "cg-customizer-background"
 const BACKGROUND_STYLE_ID = "cg-customizer-background-style"
@@ -100,7 +101,8 @@ const BACKGROUND_CSS = `
     z-index: 0 !important;
     contain: strict;
   }
-  #${BACKGROUND_ID} > img {
+  #${BACKGROUND_ID} > img,
+  #${BACKGROUND_ID} > video {
     position: absolute !important;
     inset: 0 !important;
     width: 100% !important;
@@ -255,10 +257,21 @@ function ensureBackground() {
     imgEl.decoding = "async"
     imgEl.loading = "eager"
 
+    videoEl = document.createElement("video")
+    videoEl.autoplay = true
+    videoEl.loop = true
+    videoEl.muted = true
+    videoEl.playsInline = true
+    videoEl.setAttribute("playsinline", "")
+    videoEl.setAttribute("muted", "")
+    videoEl.setAttribute("autoplay", "")
+    videoEl.setAttribute("loop", "")
+    videoEl.style.display = "none"
+
     gradEl = document.createElement("div")
     gradEl.className = "cg-customizer-gradient"
 
-    backgroundEl.append(imgEl, gradEl)
+    backgroundEl.append(imgEl, videoEl, gradEl)
 
     if (document.body) {
       document.body.prepend(backgroundEl)
@@ -268,6 +281,20 @@ function ensureBackground() {
   } else {
     backgroundEl = existing
     imgEl = existing.querySelector("img")
+    videoEl = existing.querySelector("video")
+    if (!videoEl && backgroundEl) {
+      videoEl = document.createElement("video")
+      videoEl.autoplay = true
+      videoEl.loop = true
+      videoEl.muted = true
+      videoEl.playsInline = true
+      videoEl.setAttribute("playsinline", "")
+      videoEl.setAttribute("muted", "")
+      videoEl.setAttribute("autoplay", "")
+      videoEl.setAttribute("loop", "")
+      videoEl.style.display = "none"
+      backgroundEl.insertBefore(videoEl, existing.querySelector(".cg-customizer-gradient"))
+    }
     gradEl = existing.querySelector(".cg-customizer-gradient") as HTMLDivElement | null
   }
 }
@@ -377,22 +404,61 @@ function clearUIStyles() {
 // ------------------------------
 // Aplicación de imagen de fondo + opacidades y blur
 // ------------------------------
+function isVideoSource(url: string): boolean {
+  if (!url) return false
+  return url.startsWith("data:video/") || /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url)
+}
+
 function applyBackground() {
   ensureBackground()
-  if (!imgEl || !gradEl) return
+  if (!gradEl) return
 
   const isDark =
     document.documentElement.classList.contains("dark") ||
     document.documentElement.getAttribute("data-theme") === "dark"
 
+  const opacityStr = String(Math.max(0, Math.min(1, cfg.mainImageOpacity)))
+  const blurStr = `blur(${Math.max(0, cfg.blurAmount)}px)`
+
   if (cfg.backgroundImageUrl) {
-    imgEl.src = cfg.backgroundImageUrl
-    imgEl.style.display = ""
-    imgEl.style.opacity = String(Math.max(0, Math.min(1, cfg.mainImageOpacity)))
-    imgEl.style.filter = `blur(${Math.max(0, cfg.blurAmount)}px)`
+    if (isVideoSource(cfg.backgroundImageUrl)) {
+      if (imgEl) {
+        imgEl.style.display = "none"
+        imgEl.src = ""
+      }
+      if (videoEl) {
+        videoEl.style.display = ""
+        if (videoEl.src !== cfg.backgroundImageUrl) {
+          videoEl.src = cfg.backgroundImageUrl
+          videoEl.load()
+          videoEl.play().catch(() => {})
+        }
+        videoEl.style.opacity = opacityStr
+        videoEl.style.filter = blurStr
+      }
+    } else {
+      if (videoEl) {
+        videoEl.style.display = "none"
+        videoEl.pause()
+        videoEl.src = ""
+      }
+      if (imgEl) {
+        imgEl.style.display = ""
+        imgEl.src = cfg.backgroundImageUrl
+        imgEl.style.opacity = opacityStr
+        imgEl.style.filter = blurStr
+      }
+    }
   } else {
-    imgEl.src = ""
-    imgEl.style.display = "none"
+    if (imgEl) {
+      imgEl.src = ""
+      imgEl.style.display = "none"
+    }
+    if (videoEl) {
+      videoEl.src = ""
+      videoEl.style.display = "none"
+      videoEl.pause()
+    }
   }
 
   gradEl.style.opacity = String(Math.max(0, Math.min(1, cfg.gradientOpacity)))
@@ -419,7 +485,7 @@ async function render() {
     document.getElementById(BACKGROUND_ID)?.remove()
     document.getElementById(BACKGROUND_STYLE_ID)?.remove()
     document.documentElement.classList.remove("cg-customizer-background-enabled")
-    backgroundEl = imgEl = gradEl = null
+    backgroundEl = imgEl = videoEl = gradEl = null
     clearUIStyles()
   }
 

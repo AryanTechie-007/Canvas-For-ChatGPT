@@ -11,9 +11,11 @@ Canvas for ChatGPT transforms your ChatGPT interface into a personalized, focuse
 ## ✨ Features
 
 - **Personalized Canvas Backdrops**
-  - Select from a curated gallery of high-definition backdrops or input custom image and GIF URLs.
-  - Granular control over background opacity, Gaussian blur radius, and dark/light overlay gradients.
-  - Theme-aware styles that harmonize with ChatGPT light and dark modes.
+  - **Curated Presets**: Quick-select high-definition presets (Mountain, Space, Forest, Dog Dance).
+  - **Upload Local Media**: Directly upload images, animated GIFs, or looping videos (MP4, WEBM) from your device.
+  - **Custom Web URLs**: Paste any web image, GIF, or video link.
+  - **Visual Customization**: Real-time slider controls for backdrop opacity, Gaussian blur radius, and dark/light overlay gradients.
+  - **Theme-Aware Engine**: Harmonizes automatically with ChatGPT light and dark modes with deep DOM transparency.
 
 - **Privacy & Security**
   - Operates completely client-side in your browser.
