@@ -1,0 +1,48 @@
+{
+  "name": "canvas-for-chatgpt",
+  "displayName": "Canvas for ChatGPT",
+  "version": "0.1.0-alpha",
+  "description": "Transform ChatGPT into your personal canvas with custom backgrounds, collapsible messages, smart shortcuts, and productivity styling.",
+  "author": "AryanTechie-007",
+  "homepage": "https://github.com/AryanTechie-007/Canvas-For-ChatGPT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AryanTechie-007/Canvas-For-ChatGPT.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AryanTechie-007/Canvas-For-ChatGPT/issues"
+  },
+  "license": "MIT",
+  "scripts": {
+    "dev": "plasmo dev",
+    "build": "plasmo build",
+    "package": "plasmo package",
+    "test": "node test/run-browser-tests.js"
+  },
+  "dependencies": {
+    "@plasmohq/storage": "^1.15.0",
+    "@types/marked": "^5.0.2",
+    "marked": "^16.1.2",
+    "plasmo": "0.90.5",
+    "react": "18.2.0",
+    "react-dom": "18.2.0"
+  },
+  "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "4.1.1",
+    "@types/chrome": "0.0.258",
+    "@types/node": "20.11.5",
+    "@types/react": "18.2.48",
+    "@types/react-dom": "18.2.18",
+    "prettier": "3.2.4",
+    "typescript": "5.3.3"
+  },
+  "manifest": {
+    "permissions": [
+      "storage"
+    ],
+    "host_permissions": [
+      "https://chatgpt.com/*",
+      "https://chat.openai.com/*"
+    ]
+  }
+}
