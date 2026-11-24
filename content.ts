@@ -1,7 +1,6 @@
 // content.ts
 
 import { Storage } from "@plasmohq/storage"
-import { CollapsibleMessages, type CollapsibleConfig } from "./collapsible-messages"
 
 // ------------------------------
 // Configuración del content script (Plasmo)
@@ -20,11 +19,6 @@ type Cfg = {
   mainImageOpacity: number
   blurAmount: number
   gradientOpacity: number
-  collapsibleMessages: boolean
-  buttonOpacity: number
-  collapsedHeight: string
-  altClickEnabled: boolean
-  persistMessageState: boolean
   savedBackgrounds: string[]
 }
 
@@ -34,11 +28,6 @@ const DEFAULT_CFG: Cfg = {
   mainImageOpacity: 0.5,
   blurAmount: 70,
   gradientOpacity: 1.0,
-  collapsibleMessages: true,
-  buttonOpacity: 0.4,
-  collapsedHeight: "6.5em",
-  altClickEnabled: false,
-  persistMessageState: false,
   savedBackgrounds: []
 }
 
@@ -47,7 +36,6 @@ const DEFAULT_CFG: Cfg = {
 // ------------------------------
 const storage = new Storage({ area: "local" })
 let cfg: Cfg = DEFAULT_CFG
-let collapsibleMessages: CollapsibleMessages | null = null
 
 const readCfg = async (): Promise<Cfg> => {
   try {
@@ -429,29 +417,7 @@ async function render() {
     clearUIStyles()
   }
 
-  setupCollapsibleMessages()
   await writeCfg(cfg)
-}
-
-// ------------------------------
-// Setup de mensajes colapsables
-// ------------------------------
-function setupCollapsibleMessages() {
-  const collapsibleConfig: CollapsibleConfig = {
-    enabled: cfg.collapsibleMessages,
-    buttonOpacity: cfg.buttonOpacity,
-    collapsedHeight: cfg.collapsedHeight,
-    altClickEnabled: cfg.altClickEnabled,
-    persistMessageState: cfg.persistMessageState
-  }
-
-  if (!collapsibleMessages) {
-    console.log("Canvas for ChatGPT: Creating new CollapsibleMessages instance")
-    collapsibleMessages = new CollapsibleMessages(collapsibleConfig)
-  } else {
-    console.log("Canvas for ChatGPT: Updating existing CollapsibleMessages instance")
-    collapsibleMessages.updateConfig(collapsibleConfig)
-  }
 }
 
 // ------------------------------
@@ -495,16 +461,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 })
 
 // ------------------------------
-// Debounced observer para nuevos mensajes y SPA DOM updates
+// Debounced observer para SPA DOM updates
 // ------------------------------
 let processTimer: ReturnType<typeof setTimeout> | null = null
 
 function queueProcess() {
   if (processTimer) clearTimeout(processTimer)
   processTimer = setTimeout(() => {
-    if (cfg.collapsibleMessages && collapsibleMessages) {
-      collapsibleMessages.processNewMessages()
-    }
     if (cfg.enabled) {
       const existing = document.getElementById(BACKGROUND_ID)
       if (!existing || !existing.isConnected) {
@@ -555,8 +518,6 @@ function queueProcess() {
           const node = mutation.addedNodes[i] as HTMLElement
           if (
             node.nodeType === Node.ELEMENT_NODE &&
-            !node.classList?.contains("cg-collapse-btn") &&
-            !node.classList?.contains("cg-toggle-all-btn") &&
             node.id !== BACKGROUND_ID
           ) {
             hasRelevantChange = true
@@ -603,9 +564,6 @@ function queueProcess() {
 
   // Verificación periódica cada 6 segundos como fallback
   setInterval(() => {
-    if (cfg.collapsibleMessages && collapsibleMessages) {
-      collapsibleMessages.processNewMessages()
-    }
     if (cfg.enabled) {
       const existing = document.getElementById(BACKGROUND_ID)
       if (!existing || !existing.isConnected) {

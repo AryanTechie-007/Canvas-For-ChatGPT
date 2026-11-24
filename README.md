@@ -4,7 +4,7 @@
 
 # Canvas for ChatGPT
 
-Canvas for ChatGPT transforms your ChatGPT interface into a personalized, focused workspace. Customize your chat backdrop with rich imagery and dynamic blur effects, fold lengthy conversational threads with message collapse controls, and navigate dialogues faster using built-in productivity shortcuts.
+Canvas for ChatGPT transforms your ChatGPT interface into a personalized, focused workspace. Customize your chat backdrop with rich imagery and dynamic blur effects, fine-tune opacity, and personalize your experience with light and dark mode adaptations.
 
 ---
 
@@ -14,16 +14,6 @@ Canvas for ChatGPT transforms your ChatGPT interface into a personalized, focuse
   - Select from a curated gallery of high-definition backdrops or input custom image and GIF URLs.
   - Granular control over background opacity, Gaussian blur radius, and dark/light overlay gradients.
   - Theme-aware styles that harmonize with ChatGPT light and dark modes.
-
-- **Collapsible Dialogue Threads**
-  - Clean up long discussions by collapsing individual prompt or assistant responses.
-  - Floating master toggle to collapse or expand all conversation turns in one click.
-  - Configurable collapsed height and optional persistence between page visits.
-
-- **Speed Shortcuts**
-  - `Alt + C` : Fold or unfold the closest message turn.
-  - `Alt + Shift + C` : Fold or unfold all messages across the conversation.
-  - `Alt + Click` : Click directly on any turn to quickly toggle its collapsed state (optional toggle in settings).
 
 - **Privacy & Security**
   - Operates completely client-side in your browser.
@@ -40,22 +30,12 @@ Canvas for ChatGPT transforms your ChatGPT interface into a personalized, focuse
    ```bash
    git clone https://github.com/AryanTechie-007/Canvas-For-ChatGPT.git
    ```
-2. Open your Chromium browser (Google Chrome, Brave, Microsoft Edge, Opera).
-3. Navigate to `chrome://extensions/`.
+2. Open your Chromium browser (Brave, Google Chrome, Microsoft Edge, Opera).
+3. Navigate to `chrome://extensions/` (or `brave://extensions/`).
 4. Turn on **Developer mode** via the switch in the top-right corner.
 5. Click **Load unpacked**.
-6. Select the project build directory (`build/chrome-mv3-prod`) or build it from source.
+6. Select the project build directory (`build/chrome-mv3-prod`) or download the release zip, extract it, and select the extracted folder.
 7. Open [ChatGPT](https://chatgpt.com) and click the Canvas for ChatGPT extension icon in your browser toolbar to customize your experience.
-
----
-
-## ⌨️ Shortcut Reference
-
-| Shortcut | Action | Scope |
-| :--- | :--- | :--- |
-| `Alt + C` | Toggle closest message | Active message container |
-| `Alt + Shift + C` | Toggle all messages | Full conversation thread |
-| `Alt + Click` | Click-to-toggle message | Targeted turn (configurable) |
 
 ---
 
@@ -88,10 +68,9 @@ npm run package
 ### Architecture
 
 - `content.ts`: Main injection script managing backdrop rendering and DOM observation.
-- `collapsible-messages.ts`: Resilient conversation-turn collapse engine with keyboard shortcut listeners.
-- `popup.tsx`: Toolbar popup UI for real-time background, blur, and message preferences.
+- `popup.tsx`: Toolbar popup UI for real-time background, blur, and opacity preferences.
 - `options.tsx`: Documentation and options viewing portal.
-- `test/run-browser-tests.js`: End-to-end CDP test suite validating background injection, DOM mutation recovery, and shortcut actions.
+- `test/run-browser-tests.js`: End-to-end CDP test suite validating background injection, DOM mutation recovery, and theme adaptation.
 
 ---
 

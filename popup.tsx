@@ -11,11 +11,6 @@ type Cfg = {
     mainImageOpacity: number
     blurAmount: number
     gradientOpacity: number
-    collapsibleMessages: boolean
-    buttonOpacity: number
-    collapsedHeight: string
-    altClickEnabled: boolean
-    persistMessageState: boolean
     savedBackgrounds: string[]
 }
 
@@ -25,11 +20,6 @@ const DEFAULT_CFG: Cfg = {
     mainImageOpacity: 0.5,
     blurAmount: 70,
     gradientOpacity: 1.0,
-    collapsibleMessages: true,
-    buttonOpacity: 0.4,
-    collapsedHeight: "6.5em",
-    altClickEnabled: false,
-    persistMessageState: false,
     savedBackgrounds: []
 }
 
@@ -362,75 +352,7 @@ const Popup = () => {
                 </Field>
             </section>
 
-            {/* Tarjeta: Mensajes Colapsables */}
-            <section className="card">
-                <div className="card-head">
-                    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-                        <path d="M7 10l5 5 5-5z" />
-                    </svg>
-                    <h4>Collapsible Messages</h4>
-                </div>
 
-                <Field label="Enable collapsible messages">
-                    <Switch 
-                        checked={cfg.collapsibleMessages} 
-                        onChange={(v) => patch({ collapsibleMessages: v })} 
-                    />
-                </Field>
-
-                {cfg.collapsibleMessages && (
-                    <>
-                        <Field label={`Button opacity: ${Math.round(cfg.buttonOpacity * 100)}%`}>
-                            <Slider
-                                value={cfg.buttonOpacity}
-                                min={0}
-                                max={1}
-                                step={0.05}
-                                onChange={(v) => patch({ buttonOpacity: v })}
-                                readout={`${Math.round(cfg.buttonOpacity * 100)}%`}
-                            />
-                        </Field>
-
-                        <Field label="Collapsed height">
-                            <div className="input-icon">
-                                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
-                                    <path d="M7 10l5 5 5-5z" />
-                                </svg>
-                                <input
-                                    placeholder="6.5em"
-                                    value={cfg.collapsedHeight}
-                                    onChange={(e) => patch({ collapsedHeight: e.target.value })}
-                                />
-                            </div>
-                        </Field>
-
-                        <Field label="Enable Alt+Click to toggle messages">
-                            <Switch 
-                                checked={cfg.altClickEnabled} 
-                                onChange={(v) => patch({ altClickEnabled: v })} 
-                            />
-                        </Field>
-
-                        <Field label="Remember collapsed state">
-                            <Switch 
-                                checked={cfg.persistMessageState} 
-                                onChange={(v) => patch({ persistMessageState: v })} 
-                            />
-                        </Field>
-
-                        <div className="info-box">
-                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
-                            </svg>
-                            <span>
-                                <strong>Shortcuts:</strong> Alt+C (closest message), Alt+Shift+C (all messages)
-                                {cfg.altClickEnabled && <>, Alt+Click on any message</>}.
-                                {cfg.persistMessageState && <> State is remembered between sessions.</>}
-                            </span>
-                        </div>
-                    </>
-                )}
-            </section>
 
             <footer className="footer">
                 <span className="hint">Changes apply instantly on chatgpt.com</span>
