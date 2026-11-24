@@ -868,6 +868,38 @@ server.listen(0, async () => {
       return res;
     });
 
+    // 19. Manifest V3 version specification compliance (Chromium 1-4 dot-separated integer constraint)
+    await assertTest("Manifest V3 version specification strictly complies with Chromium integer constraints", async () => {
+      const manifestPath = path.join(extensionBuildDir, 'manifest.json');
+      if (!fs.existsSync(manifestPath)) {
+        return { pass: false, error: 'manifest.json missing in build' };
+      }
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      const versionStr = manifest.version;
+      const versionParts = typeof versionStr === 'string' ? versionStr.split('.') : [];
+      const isIntegerParts = versionParts.length >= 1 && versionParts.length <= 4 &&
+        versionParts.every(p => /^\d+$/.test(p) && Number(p) >= 0 && Number(p) <= 65535);
+
+      if (!isIntegerParts) {
+        return {
+          pass: false,
+          error: `manifest.version "${versionStr}" is invalid for Chromium (must be 1-4 dot-separated integers 0-65535)`
+        };
+      }
+
+      if (!manifest.version_name) {
+        return {
+          pass: false,
+          error: 'manifest.version_name is missing (should contain pre-release display version like 0.1.0-alpha)'
+        };
+      }
+
+      return {
+        pass: true,
+        info: `version=${manifest.version}, version_name=${manifest.version_name}`
+      };
+    });
+
     console.log("=======================================================================");
     console.log(`TOTAL TESTS: ${passed + failed} | PASSED: ${passed} | FAILED: ${failed}`);
 
