@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon.png" width="128" height="128" alt="Canvas for ChatGPT Icon" />
+</p>
+
 # Canvas for ChatGPT
 
 Canvas for ChatGPT transforms your ChatGPT interface into a personalized, focused workspace. Customize your chat backdrop with rich imagery and dynamic blur effects, fold lengthy conversational threads with message collapse controls, and navigate dialogues faster using built-in productivity shortcuts.

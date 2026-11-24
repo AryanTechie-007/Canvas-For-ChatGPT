@@ -3,8 +3,26 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const bravePath = "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe";
+const candidateBrowsers = [
+  process.env.BROWSER_PATH,
+  process.env.CHROME_BIN,
+  "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"
+].filter(Boolean);
+
+const bravePath = candidateBrowsers.find(p => fs.existsSync(p));
+if (!bravePath) {
+  console.error("Could not find a Chromium-based browser (Brave, Chrome, or Edge). Set BROWSER_PATH.");
+  process.exit(1);
+}
 const extensionBuildDir = path.resolve(__dirname, '..', 'build', 'chrome-mv3-prod');
+if (!fs.existsSync(extensionBuildDir)) {
+  console.error("Extension build directory does not exist. Run 'npm run build' first.");
+  process.exit(1);
+}
 
 const buildFiles = fs.readdirSync(extensionBuildDir);
 const contentJsFile = buildFiles.find(f => f.startsWith('content.') && f.endsWith('.js'));

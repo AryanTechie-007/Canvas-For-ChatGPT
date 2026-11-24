@@ -21,7 +21,7 @@ function OptionsPage() {
     
     // Fix relative image paths - convert to GitHub URLs
     html = html.replace(
-      /src="assets\//g, 
+      /src="(?:\.\/)?assets\//g, 
       'src="https://raw.githubusercontent.com/AryanTechie-007/Canvas-For-ChatGPT/main/assets/'
     )
     
