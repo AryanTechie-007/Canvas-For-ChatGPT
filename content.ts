@@ -162,7 +162,9 @@ const BACKGROUND_CSS = `
   html.cg-customizer-background-enabled div#root,
   html.cg-customizer-background-enabled [data-testid="root"],
   html.cg-customizer-background-enabled body > div,
-  html.cg-customizer-background-enabled body > div > div {
+  html.cg-customizer-background-enabled body > div > div,
+  html.cg-customizer-background-enabled body > div > div > div,
+  html.cg-customizer-background-enabled body > div > div > div > div {
     background-color: transparent !important;
   }
 
@@ -177,7 +179,10 @@ const BACKGROUND_CSS = `
   html.cg-customizer-background-enabled div[class*="bg-token-main-surface"],
   html.cg-customizer-background-enabled div[class*="bg-token-surface"],
   html.cg-customizer-background-enabled div[class*="bg-surface-primary"],
-  html.cg-customizer-background-enabled div[class*="bg-surface-secondary"] {
+  html.cg-customizer-background-enabled div[class*="bg-surface-secondary"],
+  html.cg-customizer-background-enabled [class*="bg-token-bg-primary"]:not([data-composer-surface]):not([id="composer-background"]):not(form):not(form *),
+  html.cg-customizer-background-enabled [class*="bg-token-bg-secondary"]:not([data-composer-surface]):not([id="composer-background"]):not(form):not(form *),
+  html.cg-customizer-background-enabled [class*="bg-token-bg-elevated"]:not([data-composer-surface]):not([id="composer-background"]):not(form):not(form *) {
     background-color: transparent !important;
   }
 
@@ -294,9 +299,16 @@ function applyUIStyles() {
   document.documentElement.style.setProperty("--main-surface-primary", "transparent")
   document.documentElement.style.setProperty("--bg-elevated-secondary", "transparent")
 
-  // Contenedor principal
+  // Contenedor principal y ancestros hacia body
   const mainWrapper = document.querySelector<HTMLElement>(sel.mainWrapper)
-  if (mainWrapper) mainWrapper.style.backgroundColor = "transparent"
+  if (mainWrapper) {
+    mainWrapper.style.backgroundColor = "transparent"
+    let ancestor = mainWrapper.parentElement
+    while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+      ancestor.style.backgroundColor = "transparent"
+      ancestor = ancestor.parentElement
+    }
+  }
 
   // Sidebar
   const sidebar = document.querySelector<HTMLElement>(sel.sidebar)
