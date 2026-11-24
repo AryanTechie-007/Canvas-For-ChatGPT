@@ -24,7 +24,7 @@ type Cfg = {
 
 const DEFAULT_CFG: Cfg = {
   enabled: true,
-  backgroundImageUrl: "https://persistent.oaistatic.com/burrito-nux/640.webp",
+  backgroundImageUrl: "",
   mainImageOpacity: 0.5,
   blurAmount: 70,
   gradientOpacity: 1.0,
@@ -385,9 +385,15 @@ function applyBackground() {
     document.documentElement.classList.contains("dark") ||
     document.documentElement.getAttribute("data-theme") === "dark"
 
-  imgEl.src = cfg.backgroundImageUrl
-  imgEl.style.opacity = String(Math.max(0, Math.min(1, cfg.mainImageOpacity)))
-  imgEl.style.filter = `blur(${Math.max(0, cfg.blurAmount)}px)`
+  if (cfg.backgroundImageUrl) {
+    imgEl.src = cfg.backgroundImageUrl
+    imgEl.style.display = ""
+    imgEl.style.opacity = String(Math.max(0, Math.min(1, cfg.mainImageOpacity)))
+    imgEl.style.filter = `blur(${Math.max(0, cfg.blurAmount)}px)`
+  } else {
+    imgEl.src = ""
+    imgEl.style.display = "none"
+  }
 
   gradEl.style.opacity = String(Math.max(0, Math.min(1, cfg.gradientOpacity)))
   gradEl.style.background = isDark

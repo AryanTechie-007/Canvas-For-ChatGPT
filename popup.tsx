@@ -16,7 +16,7 @@ type Cfg = {
 
 const DEFAULT_CFG: Cfg = {
     enabled: true,
-    backgroundImageUrl: "https://persistent.oaistatic.com/burrito-nux/640.webp",
+    backgroundImageUrl: "",
     mainImageOpacity: 0.5,
     blurAmount: 70,
     gradientOpacity: 1.0,
@@ -107,14 +107,8 @@ const Popup = () => {
     const [err, setErr] = useState<string | null>(null)
     const [customUrl, setCustomUrl] = useState("")
 
-    // Fondos predeterminados
-    const defaultBackgrounds = [
-        "https://persistent.oaistatic.com/burrito-nux/1920.webp", // GPT HD
-        "https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1920&q=80", // Space
-        "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80", // Mountain
-        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&q=80", // Forest
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExN3kycXV3MzR4cDV2OXFuZjh0dmZlazRmdWgwOWJ6N3N2aHl3bDJ1YSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/VzH4jP7ppWF8dgCxcg/giphy.gif" // Dog Dance
-    ]
+    // Fondos predeterminados (sin imagenes preestablecidas)
+    const defaultBackgrounds: string[] = []
 
     // Cargar configuración: desde storage primero (siempre disponible), y luego sincronizar con pestaña activa si está en ChatGPT
     useEffect(() => {
@@ -237,51 +231,41 @@ const Popup = () => {
                     <h4>Background image</h4>
                 </div>
                 
-                {/* Galería de fondos predeterminados y guardados */}
-                <Field label="Quick Select">
-                    <div className="background-gallery">
-                        {getAllBackgrounds().map((url, index) => {
-                            const isSelected = cfg.backgroundImageUrl === url
-                            const isDefault = defaultBackgrounds.includes(url)
-                            const isCustom = !isDefault
-                            
-                            return (
-                                <div 
-                                    key={url}
-                                    className={`background-item ${isSelected ? 'selected' : ''}`}
-                                    onClick={() => selectBackground(url)}
-                                    style={{ backgroundImage: `url("${url}")` }}
-                                >
-                                    {isSelected && (
-                                        <div className="selected-indicator">✓</div>
-                                    )}
-                                    {isCustom && (
+                {/* Galería de fondos guardados */}
+                {getAllBackgrounds().length > 0 && (
+                    <Field label="Saved Backgrounds">
+                        <div className="background-gallery">
+                            {getAllBackgrounds().map((url, index) => {
+                                const isSelected = cfg.backgroundImageUrl === url
+                                return (
+                                    <div 
+                                        key={url}
+                                        className={`background-item ${isSelected ? 'selected' : ''}`}
+                                        onClick={() => selectBackground(url)}
+                                        style={{ backgroundImage: `url("${url}")` }}
+                                    >
+                                        {isSelected && (
+                                            <div className="selected-indicator">✓</div>
+                                        )}
                                         <button
                                             className="remove-btn"
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 removeCustomBackground(url)
                                             }}
-                                            title="Remove custom background"
+                                            title="Remove background"
                                         >
                                             ✕
                                         </button>
-                                    )}
-                                    <div className="background-label">
-                                        {isDefault ? 
-                                            (index === 0 ? 'GPT' : 
-                                             index === 1 ? 'Space' :
-                                             index === 2 ? 'Mountain' : 
-                                             index === 3 ? 'Forest' : 
-                                             'Dog') :
-                                            'User'
-                                        }
+                                        <div className="background-label">
+                                            {`#${index + 1}`}
+                                        </div>
                                     </div>
-                                </div>
-                            )
-                        })}
-                    </div>
-                </Field>
+                                )
+                            })}
+                        </div>
+                    </Field>
+                )}
 
                 {/* Input para URL personalizada */}
                 <Field label="Add Custom URL">
