@@ -1,8 +1,8 @@
 {
   "name": "canvas-for-chatgpt",
   "displayName": "Canvas for ChatGPT",
-  "version": "1.2.1",
-  "description": "Transform ChatGPT into your personal canvas with custom backgrounds, video backdrops, blur effects, and local media upload.",
+  "version": "2.0.0",
+  "description": "Transform ChatGPT into your personal canvas with per-chat wallpapers, custom backgrounds, video backdrops, blur effects, and local media upload.",
   "author": "AryanTechie-007",
   "homepage": "https://github.com/AryanTechie-007/Canvas-For-ChatGPT",
   "repository": {
@@ -37,7 +37,7 @@
     "typescript": "5.3.3"
   },
   "manifest": {
-    "version_name": "1.2.1",
+    "version_name": "v.2.0",
     "permissions": [
       "storage",
       "unlimitedStorage"

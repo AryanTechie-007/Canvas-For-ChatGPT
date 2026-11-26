@@ -13,6 +13,15 @@ export const config = {
 // ------------------------------
 // Tipos y defaults
 // ------------------------------
+type ChatCanvasCfg = {
+  backgroundImageUrl: string
+  title?: string
+  mainImageOpacity?: number
+  blurAmount?: number
+  gradientOpacity?: number
+  updatedAt?: number
+}
+
 type Cfg = {
   enabled: boolean
   backgroundImageUrl: string
@@ -20,6 +29,7 @@ type Cfg = {
   blurAmount: number
   gradientOpacity: number
   savedBackgrounds: string[]
+  chatBackgrounds?: Record<string, ChatCanvasCfg>
 }
 
 const DEFAULT_CFG: Cfg = {
@@ -28,7 +38,59 @@ const DEFAULT_CFG: Cfg = {
   mainImageOpacity: 0.5,
   blurAmount: 70,
   gradientOpacity: 1.0,
-  savedBackgrounds: []
+  savedBackgrounds: [],
+  chatBackgrounds: {}
+}
+
+function getChatKeyFromUrl(urlStr: string = window.location.href): string | null {
+  try {
+    const url = new URL(urlStr, window.location.origin)
+    const path = url.pathname
+
+    const convMatch = path.match(/\/c\/([a-zA-Z0-9_-]+)/)
+    if (convMatch?.[1]) {
+      return `c:${convMatch[1]}`
+    }
+
+    const shareMatch = path.match(/\/share\/([a-zA-Z0-9_-]+)/)
+    if (shareMatch?.[1]) {
+      return `share:${shareMatch[1]}`
+    }
+
+    const gptMatch = path.match(/^\/g\/([a-zA-Z0-9_-]+)\/?$/)
+    if (gptMatch?.[1]) {
+      return `g:${gptMatch[1]}`
+    }
+  } catch {}
+  return null
+}
+
+function getCurrentChatTitle(chatKey: string | null): string | undefined {
+  if (!chatKey) return undefined
+  if (chatKey.startsWith("c:")) {
+    const id = chatKey.slice(2)
+    const link = document.querySelector<HTMLElement>(`nav a[href*="/c/${id}"]`)
+    const linkText = link?.textContent?.trim()
+    if (linkText) return linkText
+  }
+
+  const rawTitle = (document.title || "").trim()
+  const cleaned = rawTitle.replace(/^(?:ChatGPT\s*[-–—]\s*)|(?:\s*[-–—]\s*ChatGPT)$/i, "").trim()
+  if (cleaned && !/^(ChatGPT|New chat)$/i.test(cleaned)) {
+    return cleaned
+  }
+
+  return undefined
+}
+
+function resolveEffectiveVisuals(config: Cfg, chatKey: string | null) {
+  const override = chatKey ? config.chatBackgrounds?.[chatKey] : undefined
+  return {
+    backgroundImageUrl: override?.backgroundImageUrl ?? config.backgroundImageUrl,
+    mainImageOpacity: override?.mainImageOpacity ?? config.mainImageOpacity,
+    blurAmount: override?.blurAmount ?? config.blurAmount,
+    gradientOpacity: override?.gradientOpacity ?? config.gradientOpacity
+  }
 }
 
 // ------------------------------
@@ -617,25 +679,29 @@ function isVideoSource(url: string): boolean {
   return url.startsWith("data:video/") || /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url)
 }
 
+let lastRenderedUrl = window.location.href
+
 function applyBackground() {
   ensureBackground()
   if (!gradEl) return
 
+  lastRenderedUrl = window.location.href
   const isDark = isDarkTheme()
+  const effective = resolveEffectiveVisuals(cfg, getChatKeyFromUrl(lastRenderedUrl))
 
-  const opacityStr = String(Math.max(0, Math.min(1, cfg.mainImageOpacity)))
-  const blurStr = `blur(${Math.max(0, cfg.blurAmount)}px)`
+  const opacityStr = String(Math.max(0, Math.min(1, effective.mainImageOpacity)))
+  const blurStr = `blur(${Math.max(0, effective.blurAmount)}px)`
 
-  if (cfg.backgroundImageUrl) {
-    if (isVideoSource(cfg.backgroundImageUrl)) {
+  if (effective.backgroundImageUrl) {
+    if (isVideoSource(effective.backgroundImageUrl)) {
       if (imgEl) {
         imgEl.style.display = "none"
-        imgEl.src = ""
+        imgEl.removeAttribute("src")
       }
       if (videoEl) {
         videoEl.style.display = ""
-        if (videoEl.src !== cfg.backgroundImageUrl) {
-          videoEl.src = cfg.backgroundImageUrl
+        if (videoEl.getAttribute("src") !== effective.backgroundImageUrl) {
+          videoEl.src = effective.backgroundImageUrl
           videoEl.load()
           videoEl.play().catch(() => {})
         }
@@ -646,28 +712,30 @@ function applyBackground() {
       if (videoEl) {
         videoEl.style.display = "none"
         videoEl.pause()
-        videoEl.src = ""
+        videoEl.removeAttribute("src")
       }
       if (imgEl) {
         imgEl.style.display = ""
-        imgEl.src = cfg.backgroundImageUrl
+        if (imgEl.getAttribute("src") !== effective.backgroundImageUrl) {
+          imgEl.src = effective.backgroundImageUrl
+        }
         imgEl.style.opacity = opacityStr
         imgEl.style.filter = blurStr
       }
     }
   } else {
     if (imgEl) {
-      imgEl.src = ""
+      imgEl.removeAttribute("src")
       imgEl.style.display = "none"
     }
     if (videoEl) {
-      videoEl.src = ""
+      videoEl.removeAttribute("src")
       videoEl.style.display = "none"
       videoEl.pause()
     }
   }
 
-  gradEl.style.opacity = String(Math.max(0, Math.min(1, cfg.gradientOpacity)))
+  gradEl.style.opacity = String(Math.max(0, Math.min(1, effective.gradientOpacity)))
   gradEl.style.background = isDark
     ? "linear-gradient(to bottom, transparent, #000000)"
     : "linear-gradient(to bottom, transparent, #ffffff)"
@@ -682,9 +750,7 @@ function applyBackground() {
 // ------------------------------
 // Render global y persistencia
 // ------------------------------
-async function render() {
-  console.log("Canvas for ChatGPT: Rendering with config", cfg)
-
+function applyVisualState() {
   if (cfg.enabled) {
     applyBackground()
   } else {
@@ -694,7 +760,11 @@ async function render() {
     backgroundEl = imgEl = videoEl = gradEl = null
     clearUIStyles()
   }
+}
 
+async function render() {
+  console.log("Canvas for ChatGPT: Rendering with config", cfg)
+  applyVisualState()
   await writeCfg(cfg)
 }
 
@@ -719,11 +789,20 @@ new MutationObserver(() => checkThemeChange()).observe(document.documentElement,
 })
 
 // ------------------------------
-// Mensajería con el popup
+// Mensajería con el popup y sincronización de storage
 // ------------------------------
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "GET_CFG") {
     sendResponse(cfg)
+    return true
+  }
+  if (msg?.type === "GET_CHAT_CONTEXT") {
+    const chatKey = getChatKeyFromUrl()
+    sendResponse({
+      chatKey,
+      chatTitle: getCurrentChatTitle(chatKey),
+      url: window.location.href
+    })
     return true
   }
   if (msg?.type === "SET_CFG_PARTIAL") {
@@ -733,6 +812,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true
   }
 })
+
+if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === "local" && changes["chatgpt-custom-bg:cfg"]?.newValue) {
+      cfg = { ...DEFAULT_CFG, ...changes["chatgpt-custom-bg:cfg"].newValue }
+      applyVisualState()
+    }
+  })
+}
 
 // ------------------------------
 // Debounced observer para SPA DOM updates
@@ -744,7 +832,7 @@ function queueProcess() {
   processTimer = setTimeout(() => {
     if (cfg.enabled) {
       const existing = document.getElementById(BACKGROUND_ID)
-      if (!existing || !existing.isConnected) {
+      if (!existing || !existing.isConnected || window.location.href !== lastRenderedUrl) {
         applyBackground()
       } else {
         syncComposerStyles()
@@ -829,20 +917,24 @@ function queueProcess() {
   }
 
   const handleNavigation = () => {
-    queueProcess()
     if (cfg.enabled) {
-      setTimeout(() => applyBackground(), 100)
+      applyBackground()
+      setTimeout(() => applyBackground(), 120)
     }
+    queueProcess()
   }
 
   window.addEventListener("popstate", handleNavigation)
   window.addEventListener("cg-spa-navigate", handleNavigation)
+  if (typeof (window as any).navigation?.addEventListener === "function") {
+    ;(window as any).navigation.addEventListener("navigatesuccess", handleNavigation)
+  }
 
-  // Verificación periódica cada 6 segundos como fallback
+  // Verificación periódica cada 6 segundos como fallback (también detecta cambios de URL SPA)
   setInterval(() => {
     if (cfg.enabled) {
       const existing = document.getElementById(BACKGROUND_ID)
-      if (!existing || !existing.isConnected) {
+      if (!existing || !existing.isConnected || window.location.href !== lastRenderedUrl) {
         applyBackground()
       } else {
         syncComposerStyles()

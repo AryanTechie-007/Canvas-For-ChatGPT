@@ -560,7 +560,64 @@ server.listen(0, async () => {
       return res;
     });
 
-    // 11. Manifest V3 version specification compliance (Chromium 1-4 dot-separated integer constraint)
+    // 11. Per-chat wallpapers apply per route and fall back to Global Default
+    await assertTest("Per-chat wallpapers switch across chats and fall back to Global Default", async () => {
+      const res = await evaluate(`(async () => {
+        for (const l of window.chrome.runtime.onMessage.listeners) {
+          l({
+            type: 'SET_CFG_PARTIAL',
+            patch: {
+              backgroundImageUrl: 'https://example.com/global-default.jpg',
+              mainImageOpacity: 0.5,
+              blurAmount: 20,
+              chatBackgrounds: {
+                'c:chat-alpha': {
+                  backgroundImageUrl: 'https://example.com/alpha.jpg',
+                  mainImageOpacity: 0.9,
+                  blurAmount: 5
+                },
+                'c:chat-beta': {
+                  backgroundImageUrl: 'https://example.com/beta.jpg',
+                  mainImageOpacity: 0.35,
+                  blurAmount: 40
+                }
+              }
+            }
+          }, {}, () => {});
+        }
+        await new Promise(r => setTimeout(r, 100));
+
+        history.pushState({}, '', '/c/chat-alpha');
+        await new Promise(r => setTimeout(r, 150));
+        const img = document.querySelector('#cg-customizer-background img');
+        const alphaOk = img.src === 'https://example.com/alpha.jpg' && img.style.opacity === '0.9' && img.style.filter.includes('5px');
+
+        let ctxAlpha = null;
+        for (const l of window.chrome.runtime.onMessage.listeners) {
+          l({ type: 'GET_CHAT_CONTEXT' }, {}, (resp) => { if (resp) ctxAlpha = resp; });
+        }
+
+        history.pushState({}, '', '/g/g-demo/c/chat-beta');
+        await new Promise(r => setTimeout(r, 150));
+        const betaOk = img.src === 'https://example.com/beta.jpg' && img.style.opacity === '0.35' && img.style.filter.includes('40px');
+
+        history.pushState({}, '', '/c/chat-no-override');
+        await new Promise(r => setTimeout(r, 150));
+        const fallbackOk = img.src === 'https://example.com/global-default.jpg' && img.style.opacity === '0.5' && img.style.filter.includes('20px');
+
+        history.pushState({}, '', '/');
+        await new Promise(r => setTimeout(r, 150));
+        const rootFallbackOk = img.src === 'https://example.com/global-default.jpg';
+
+        return {
+          pass: alphaOk && betaOk && fallbackOk && rootFallbackOk && ctxAlpha?.chatKey === 'c:chat-alpha',
+          info: 'alpha=' + alphaOk + ', beta=' + betaOk + ', fallback=' + fallbackOk + ', root=' + rootFallbackOk + ', ctxKey=' + ctxAlpha?.chatKey
+        };
+      })()`);
+      return res;
+    });
+
+    // 12. Manifest V3 version specification compliance (Chromium 1-4 dot-separated integer constraint)
     await assertTest("Manifest V3 version specification strictly complies with Chromium integer constraints", async () => {
       const manifestPath = path.join(extensionBuildDir, 'manifest.json');
       if (!fs.existsSync(manifestPath)) {

@@ -5,6 +5,15 @@ import React, { useEffect, useMemo, useState } from "react"
 // ------------------------------
 // Tipos
 // ------------------------------
+type ChatCanvasCfg = {
+    backgroundImageUrl: string
+    title?: string
+    mainImageOpacity?: number
+    blurAmount?: number
+    gradientOpacity?: number
+    updatedAt?: number
+}
+
 type Cfg = {
     enabled: boolean
     backgroundImageUrl: string
@@ -12,6 +21,12 @@ type Cfg = {
     blurAmount: number
     gradientOpacity: number
     savedBackgrounds: string[]
+    chatBackgrounds?: Record<string, ChatCanvasCfg>
+}
+
+type ChatContext = {
+    chatKey: string | null
+    chatTitle?: string
 }
 
 const DEFAULT_CFG: Cfg = {
@@ -20,7 +35,31 @@ const DEFAULT_CFG: Cfg = {
     mainImageOpacity: 0.5,
     blurAmount: 70,
     gradientOpacity: 1.0,
-    savedBackgrounds: []
+    savedBackgrounds: [],
+    chatBackgrounds: {}
+}
+
+function getChatKeyFromUrl(urlStr?: string): string | null {
+    if (!urlStr) return null
+    try {
+        const url = new URL(urlStr)
+        if (!/^https:\/\/(chatgpt\.com|chat\.openai\.com)$/i.test(url.origin)) return null
+        const convMatch = url.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/)
+        if (convMatch?.[1]) return `c:${convMatch[1]}`
+        const shareMatch = url.pathname.match(/\/share\/([a-zA-Z0-9_-]+)/)
+        if (shareMatch?.[1]) return `share:${shareMatch[1]}`
+        const gptMatch = url.pathname.match(/^\/g\/([a-zA-Z0-9_-]+)\/?$/)
+        if (gptMatch?.[1]) return `g:${gptMatch[1]}`
+    } catch {}
+    return null
+}
+
+function formatChatLabel(chatKey: string, title?: string): string {
+    if (title && title.trim()) return title.trim()
+    if (chatKey.startsWith("c:")) return `Chat ${chatKey.slice(2, 10)}…`
+    if (chatKey.startsWith("g:")) return `GPT ${chatKey.slice(2, 12)}…`
+    if (chatKey.startsWith("share:")) return `Shared ${chatKey.slice(6, 14)}…`
+    return chatKey
 }
 
 // ------------------------------
@@ -106,6 +145,8 @@ const Popup = () => {
     const [cfg, setCfg] = useState<Cfg | null>(null)
     const [err, setErr] = useState<string | null>(null)
     const [customUrl, setCustomUrl] = useState("")
+    const [chatContext, setChatContext] = useState<ChatContext>({ chatKey: null })
+    const [scope, setScope] = useState<"chat" | "global">("global")
     const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
     // 4 Fondos predeterminados solicitados: Mountain, Space, Forest, Dog Dance
@@ -120,7 +161,7 @@ const Popup = () => {
     const isVideoUrl = (url: string) =>
         url.startsWith("data:video/") || /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url)
 
-    // Cargar configuración: desde storage primero (siempre disponible), y luego sincronizar con pestaña activa si está en ChatGPT
+    // Cargar configuración y contexto del chat activo
     useEffect(() => {
         let mounted = true
         const initCfg = async () => {
@@ -134,13 +175,29 @@ const Popup = () => {
                 }
             } catch (e) {}
 
+            let detectedCtx: ChatContext = { chatKey: null }
             try {
-                const activeCfg = await sendToActiveTab<Cfg>({ type: "GET_CFG" })
-                if (activeCfg) loaded = activeCfg
+                const tab = await getActiveTab()
+                const fallbackKey = getChatKeyFromUrl(tab?.url)
+                if (fallbackKey) detectedCtx = { chatKey: fallbackKey }
             } catch (e) {}
 
+            try {
+                const activeCtx = await sendToActiveTab<ChatContext>({ type: "GET_CHAT_CONTEXT" })
+                if (activeCtx && typeof activeCtx.chatKey !== "undefined") {
+                    detectedCtx = activeCtx
+                }
+            } catch (e) {
+                try {
+                    const activeCfg = await sendToActiveTab<Cfg>({ type: "GET_CFG" })
+                    if (activeCfg) loaded = activeCfg
+                } catch (e2) {}
+            }
+
             if (mounted) {
-                setCfg(loaded || DEFAULT_CFG)
+                setCfg({ ...DEFAULT_CFG, ...(loaded || {}) })
+                setChatContext(detectedCtx)
+                setScope(detectedCtx.chatKey ? "chat" : "global")
             }
         }
 
@@ -167,28 +224,91 @@ const Popup = () => {
         } catch (e) {}
     }
 
-    // Funciones para manejar fondos
-    const addCustomBackground = async (url: string) => {
-        if (!cfg || !url.trim()) return
-        
-        const savedBackgrounds = cfg.savedBackgrounds || []
-        if (!savedBackgrounds.includes(url) && !defaultUrls.includes(url)) {
-            const newSavedBackgrounds = [url, ...savedBackgrounds].slice(0, 50) // Máximo 50 fondos guardados
-            await patch({ savedBackgrounds: newSavedBackgrounds })
+    const activeChatKey = chatContext.chatKey
+    const isChatScope = scope === "chat" && !!activeChatKey
+    const activeChatOverride = activeChatKey ? cfg?.chatBackgrounds?.[activeChatKey] : undefined
+
+    const activeVisuals = useMemo(() => {
+        if (!cfg) {
+            return {
+                backgroundImageUrl: DEFAULT_CFG.backgroundImageUrl,
+                mainImageOpacity: DEFAULT_CFG.mainImageOpacity,
+                blurAmount: DEFAULT_CFG.blurAmount,
+                gradientOpacity: DEFAULT_CFG.gradientOpacity
+            }
+        }
+        if (isChatScope && activeChatOverride) {
+            return {
+                backgroundImageUrl: activeChatOverride.backgroundImageUrl ?? cfg.backgroundImageUrl,
+                mainImageOpacity: activeChatOverride.mainImageOpacity ?? cfg.mainImageOpacity,
+                blurAmount: activeChatOverride.blurAmount ?? cfg.blurAmount,
+                gradientOpacity: activeChatOverride.gradientOpacity ?? cfg.gradientOpacity
+            }
+        }
+        return {
+            backgroundImageUrl: cfg.backgroundImageUrl,
+            mainImageOpacity: cfg.mainImageOpacity,
+            blurAmount: cfg.blurAmount,
+            gradientOpacity: cfg.gradientOpacity
+        }
+    }, [cfg, isChatScope, activeChatOverride])
+
+    const updateScopedVisuals = async (
+        updates: Partial<Pick<Cfg, "backgroundImageUrl" | "mainImageOpacity" | "blurAmount" | "gradientOpacity">>,
+        extraSavedUrl?: string
+    ) => {
+        if (!cfg) return
+        let nextSavedBackgrounds = cfg.savedBackgrounds || []
+        if (extraSavedUrl && !nextSavedBackgrounds.includes(extraSavedUrl) && !defaultUrls.includes(extraSavedUrl)) {
+            nextSavedBackgrounds = [extraSavedUrl, ...nextSavedBackgrounds].slice(0, 50)
+        }
+
+        if (isChatScope && activeChatKey) {
+            const existing = cfg.chatBackgrounds?.[activeChatKey]
+            const nextChatEntry: ChatCanvasCfg = {
+                backgroundImageUrl: updates.backgroundImageUrl ?? existing?.backgroundImageUrl ?? cfg.backgroundImageUrl,
+                mainImageOpacity: updates.mainImageOpacity ?? existing?.mainImageOpacity ?? cfg.mainImageOpacity,
+                blurAmount: updates.blurAmount ?? existing?.blurAmount ?? cfg.blurAmount,
+                gradientOpacity: updates.gradientOpacity ?? existing?.gradientOpacity ?? cfg.gradientOpacity,
+                title: chatContext.chatTitle || existing?.title,
+                updatedAt: Date.now()
+            }
+            const nextChatBackgrounds = {
+                ...(cfg.chatBackgrounds || {}),
+                [activeChatKey]: nextChatEntry
+            }
+            await patch({
+                chatBackgrounds: nextChatBackgrounds,
+                ...(nextSavedBackgrounds !== cfg.savedBackgrounds ? { savedBackgrounds: nextSavedBackgrounds } : {})
+            })
+        } else {
+            await patch({
+                ...updates,
+                ...(nextSavedBackgrounds !== cfg.savedBackgrounds ? { savedBackgrounds: nextSavedBackgrounds } : {})
+            })
         }
     }
 
     const selectBackground = async (url: string) => {
-        await patch({ backgroundImageUrl: url })
-        if (url && !defaultUrls.includes(url)) {
-            await addCustomBackground(url)
-        }
+        await updateScopedVisuals({ backgroundImageUrl: url }, url)
     }
 
     const removeCustomBackground = async (url: string) => {
         if (!cfg) return
         const savedBackgrounds = (cfg.savedBackgrounds || []).filter(bg => bg !== url)
         await patch({ savedBackgrounds })
+    }
+
+    const resetChatBackground = async (chatKey: string) => {
+        if (!cfg?.chatBackgrounds?.[chatKey]) return
+        const nextChatBackgrounds = { ...cfg.chatBackgrounds }
+        delete nextChatBackgrounds[chatKey]
+        await patch({ chatBackgrounds: nextChatBackgrounds })
+    }
+
+    const clearAllChatBackgrounds = async () => {
+        if (!cfg) return
+        await patch({ chatBackgrounds: {} })
     }
 
     const handleCustomUrlSubmit = async () => {
@@ -221,19 +341,22 @@ const Popup = () => {
     // Previsualización pequeña del fondo (solo URL, sin leer de la página)
     const previewStyle = useMemo(
         () => ({
-            backgroundImage: cfg?.backgroundImageUrl && !isVideoUrl(cfg.backgroundImageUrl)
-                ? `url("${cfg.backgroundImageUrl}")`
+            backgroundImage: activeVisuals.backgroundImageUrl && !isVideoUrl(activeVisuals.backgroundImageUrl)
+                ? `url("${activeVisuals.backgroundImageUrl}")`
                 : "none",
-            filter: `blur(${(cfg?.blurAmount ?? 0) / 4}px)`,
-            opacity: cfg?.mainImageOpacity ?? 1
+            filter: `blur(${(activeVisuals.blurAmount ?? 0) / 4}px)`,
+            opacity: activeVisuals.mainImageOpacity ?? 1
         }),
-        [cfg?.backgroundImageUrl, cfg?.mainImageOpacity, cfg?.blurAmount]
+        [activeVisuals.backgroundImageUrl, activeVisuals.mainImageOpacity, activeVisuals.blurAmount]
     )
 
     if (err) return <Shell><div className="error">{err}</div></Shell>
     if (!cfg) return <Shell><div className="loading">Loading…</div></Shell>
 
-    const activeIsVideo = cfg.backgroundImageUrl && isVideoUrl(cfg.backgroundImageUrl)
+    const activeIsVideo = activeVisuals.backgroundImageUrl && isVideoUrl(activeVisuals.backgroundImageUrl)
+    const chatEntries = Object.entries(cfg.chatBackgrounds || {}).sort(
+        (a, b) => (b[1]?.updatedAt ?? 0) - (a[1]?.updatedAt ?? 0)
+    )
 
     return (
         <Shell>
@@ -251,30 +374,81 @@ const Popup = () => {
             <div className="preview" style={previewStyle as React.CSSProperties}>
                 {activeIsVideo ? (
                     <video
-                        src={cfg.backgroundImageUrl}
+                        src={activeVisuals.backgroundImageUrl}
                         autoPlay
                         loop
                         muted
                         playsInline
                         style={{ width: "100%", height: "100%", objectFit: "cover" }}
                     />
-                ) : !cfg.backgroundImageUrl ? (
+                ) : !activeVisuals.backgroundImageUrl ? (
                     <span className="preview-hint">No media selected</span>
                 ) : null}
             </div>
+
+            {/* Selector de alcance: Chat actual vs Predeterminado global */}
+            <section className="card scope-card">
+                <div className="scope-tabs" role="tablist" aria-label="Wallpaper Scope">
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={isChatScope}
+                        disabled={!activeChatKey}
+                        className={`scope-tab ${isChatScope ? "active" : ""}`}
+                        onClick={() => activeChatKey && setScope("chat")}
+                        title={activeChatKey ? "Apply wallpaper only to this ChatGPT chat" : "Open a specific chat (/c/...) to set a per-chat wallpaper"}
+                    >
+                        This Chat
+                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={!isChatScope}
+                        className={`scope-tab ${!isChatScope ? "active" : ""}`}
+                        onClick={() => setScope("global")}
+                    >
+                        Global Default
+                    </button>
+                </div>
+                <div className="scope-meta">
+                    {activeChatKey ? (
+                        <>
+                            <span className="scope-name" title={activeChatKey}>
+                                {isChatScope ? formatChatLabel(activeChatKey, chatContext.chatTitle || activeChatOverride?.title) : "All chats without a custom wallpaper"}
+                            </span>
+                            {isChatScope && (
+                                activeChatOverride ? (
+                                    <button
+                                        type="button"
+                                        className="reset-chip"
+                                        onClick={() => resetChatBackground(activeChatKey)}
+                                        title="Remove per-chat wallpaper and use Global Default"
+                                    >
+                                        Reset to Default
+                                    </button>
+                                ) : (
+                                    <span className="status-chip">Using Default</span>
+                                )
+                            )}
+                        </>
+                    ) : (
+                        <span className="scope-name">Open a specific chat (/c/...) to set a per-chat wallpaper</span>
+                    )}
+                </div>
+            </section>
 
             {/* Tarjeta: Media / Fondos */}
             <section className="card">
                 <div className="card-head">
                     <IconImage />
-                    <h4>Background Canvas</h4>
+                    <h4>{isChatScope ? "This Chat Wallpaper" : "Default Background Canvas"}</h4>
                 </div>
                 
                 {/* Presets: Mountain, Space, Forest, Dog Dance */}
                 <Field label="Presets (Mountain, Space, Forest, Dog Dance)">
                     <div className="background-gallery">
                         {defaultPresets.map((preset) => {
-                            const isSelected = cfg.backgroundImageUrl === preset.url
+                            const isSelected = activeVisuals.backgroundImageUrl === preset.url
                             return (
                                 <div 
                                     key={preset.url}
@@ -325,7 +499,7 @@ const Popup = () => {
                     <Field label="Uploaded & Saved Media">
                         <div className="background-gallery">
                             {cfg.savedBackgrounds.map((url, index) => {
-                                const isSelected = cfg.backgroundImageUrl === url
+                                const isSelected = activeVisuals.backgroundImageUrl === url
                                 const isVideo = isVideoUrl(url)
                                 return (
                                     <div 
@@ -396,42 +570,108 @@ const Popup = () => {
                     <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
                         <path d="M12 3a2 2 0 0 1 2 2v1.1a7.02 7.02 0 0 1 2.05.85l.78-.78a2 2 0 1 1 2.83 2.83l-.78.78c.36.65.63 1.34.79 2.06H21a2 2 0 1 1 0 4h-1.1a7.02 7.02 0 0 1-.85 2.05l.78.78a2 2 0 1 1-2.83 2.83l-.78-.78c-.65.36-1.34.63-2.06.79V19a2 2 0 1 1-4 0v-1.1a7.02 7.02 0 0 1-2.05-.85l-.78.78a2 2 0 1 1-2.83-2.83l.78-.78A7 7 0 0 1 4.1 13H3a2 2 0 1 1 0-4h1.1a7.02 7.02 0 0 1 .85-2.05l-.78-.78a2 2 0 1 1 2.83-2.83l.78.78c.65-.36 1.34-.63 2.06-.79V5a2 2 0 0 1 2-2Z" />
                     </svg>
-                    <h4>Visual Settings</h4>
+                    <h4>{isChatScope ? "This Chat Visual Settings" : "Visual Settings"}</h4>
                 </div>
 
-                <Field label={`Image opacity: ${Math.round(cfg.mainImageOpacity * 100)}%`}>
+                <Field label={`Image opacity: ${Math.round(activeVisuals.mainImageOpacity * 100)}%`}>
                     <Slider
-                        value={cfg.mainImageOpacity}
+                        value={activeVisuals.mainImageOpacity}
                         min={0}
                         max={1}
                         step={0.01}
-                        onChange={(v) => patch({ mainImageOpacity: v })}
-                        readout={`${Math.round(cfg.mainImageOpacity * 100)}%`}
+                        onChange={(v) => updateScopedVisuals({ mainImageOpacity: v })}
+                        readout={`${Math.round(activeVisuals.mainImageOpacity * 100)}%`}
                     />
                 </Field>
 
-                <Field label={`Image blur: ${cfg.blurAmount}px`}>
+                <Field label={`Image blur: ${activeVisuals.blurAmount}px`}>
                     <Slider
-                        value={cfg.blurAmount}
+                        value={activeVisuals.blurAmount}
                         min={0}
                         max={100}
                         step={1}
-                        onChange={(v) => patch({ blurAmount: v })}
-                        readout={`${cfg.blurAmount}px`}
+                        onChange={(v) => updateScopedVisuals({ blurAmount: v })}
+                        readout={`${activeVisuals.blurAmount}px`}
                     />
                 </Field>
 
-                <Field label={`Gradient opacity: ${Math.round(cfg.gradientOpacity * 100)}%`}>
+                <Field label={`Gradient opacity: ${Math.round(activeVisuals.gradientOpacity * 100)}%`}>
                     <Slider
-                        value={cfg.gradientOpacity}
+                        value={activeVisuals.gradientOpacity}
                         min={0}
                         max={1}
                         step={0.05}
-                        onChange={(v) => patch({ gradientOpacity: v })}
-                        readout={`${Math.round(cfg.gradientOpacity * 100)}%`}
+                        onChange={(v) => updateScopedVisuals({ gradientOpacity: v })}
+                        readout={`${Math.round(activeVisuals.gradientOpacity * 100)}%`}
                     />
                 </Field>
             </section>
+
+            {/* Tarjeta: Fondos por chat guardados */}
+            {chatEntries.length > 0 && (
+                <section className="card">
+                    <div className="card-head card-head-between">
+                        <div className="card-head-left">
+                            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
+                                <path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2Z" />
+                            </svg>
+                            <h4>Per-Chat Wallpapers ({chatEntries.length})</h4>
+                        </div>
+                        {chatEntries.length > 1 && (
+                            <button
+                                type="button"
+                                className="clear-all-btn"
+                                onClick={clearAllChatBackgrounds}
+                                title="Reset all per-chat wallpapers to Global Default"
+                            >
+                                Clear All
+                            </button>
+                        )}
+                    </div>
+                    <div className="chat-list">
+                        {chatEntries.map(([chatKey, entry]) => {
+                            const isCurrent = chatKey === activeChatKey
+                            const isVideo = entry.backgroundImageUrl && isVideoUrl(entry.backgroundImageUrl)
+                            return (
+                                <div
+                                    key={chatKey}
+                                    className={`chat-row ${isCurrent ? "current" : ""}`}
+                                    onClick={() => isCurrent && setScope("chat")}
+                                    title={chatKey}
+                                >
+                                    <div
+                                        className="chat-thumb"
+                                        style={!isVideo && entry.backgroundImageUrl ? { backgroundImage: `url("${entry.backgroundImageUrl}")` } : undefined}
+                                    >
+                                        {isVideo && (
+                                            <video
+                                                src={entry.backgroundImageUrl}
+                                                muted
+                                                style={{ width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none" }}
+                                            />
+                                        )}
+                                    </div>
+                                    <div className="chat-info">
+                                        <span className="chat-title">{formatChatLabel(chatKey, entry.title)}</span>
+                                        {isCurrent && <span className="current-badge">Active</span>}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="chat-remove-btn"
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            resetChatBackground(chatKey)
+                                        }}
+                                        title="Reset this chat to Global Default"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </section>
+            )}
 
 
 
@@ -714,6 +954,94 @@ body {
 .add-btn:disabled{
   opacity:0.5; cursor:not-allowed; background:var(--muted);
   border-color:var(--muted);
+}
+
+.scope-card{
+  padding: 10px 12px;
+}
+.scope-tabs{
+  display:grid; grid-template-columns:1fr 1fr; gap:6px;
+  padding:3px; border-radius:8px; background:rgba(0,0,0,0.16);
+  border:1px solid var(--border);
+}
+.scope-tab{
+  padding:6px 8px; border:none; border-radius:6px;
+  background:transparent; color:var(--muted);
+  font-size:12px; font-weight:600; cursor:pointer;
+  transition:all 0.15s ease;
+}
+.scope-tab.active{
+  background:linear-gradient(90deg, var(--accent), var(--accent-2));
+  color:#fff;
+}
+.scope-tab:disabled{
+  opacity:0.45; cursor:not-allowed;
+}
+.scope-meta{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  margin-top:8px; font-size:11.5px; color:var(--muted);
+}
+.scope-name{
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.status-chip{
+  padding:2px 7px; border-radius:999px; font-size:10.5px;
+  border:1px solid var(--border); color:var(--muted); white-space:nowrap;
+}
+.reset-chip{
+  padding:2px 8px; border-radius:999px; font-size:10.5px; font-weight:600;
+  border:1px solid var(--accent); background:rgba(91,140,255,0.14);
+  color:var(--text); cursor:pointer; white-space:nowrap;
+}
+.reset-chip:hover{
+  background:var(--accent); color:#fff;
+}
+.card-head-between{
+  justify-content:space-between;
+}
+.card-head-left{
+  display:flex; align-items:center; gap:8px;
+}
+.clear-all-btn{
+  padding:2px 8px; border-radius:6px; border:1px solid var(--border);
+  background:transparent; color:var(--muted); font-size:11px; cursor:pointer;
+}
+.clear-all-btn:hover{
+  border-color:#ef4444; color:#ef4444;
+}
+.chat-list{
+  display:flex; flex-direction:column; gap:6px; max-height:140px; overflow-y:auto;
+}
+.chat-row{
+  display:flex; align-items:center; gap:8px; padding:5px 6px;
+  border:1px solid var(--border); border-radius:8px; cursor:pointer;
+  background:rgba(0,0,0,0.08);
+}
+.chat-row.current{
+  border-color:var(--accent-2);
+}
+.chat-thumb{
+  width:36px; height:22px; border-radius:4px; flex-shrink:0;
+  background-size:cover; background-position:center; background-color:#0b0c10;
+  overflow:hidden;
+}
+.chat-info{
+  flex:1; min-width:0; display:flex; align-items:center; gap:6px;
+}
+.chat-title{
+  font-size:11.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.current-badge{
+  padding:1px 6px; border-radius:999px; font-size:10px;
+  background:var(--accent-2); color:#fff; flex-shrink:0;
+}
+.chat-remove-btn{
+  width:20px; height:20px; border:none; border-radius:5px;
+  background:transparent; color:var(--muted); cursor:pointer; font-size:11px;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.chat-remove-btn:hover{
+  background:rgba(239,68,68,0.18); color:#ef4444;
 }
 `
 
