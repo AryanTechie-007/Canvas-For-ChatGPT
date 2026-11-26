@@ -617,7 +617,215 @@ server.listen(0, async () => {
       return res;
     });
 
-    // 12. Manifest V3 version specification compliance (Chromium 1-4 dot-separated integer constraint)
+    // 12. Modern ChatGPT #stage-slideover-sidebar becomes single frosted-glass surface while preserving pills/buttons/menus
+    await assertTest("Modern #stage-slideover-sidebar becomes uniform frosted glass without flattening pills or avatars", async () => {
+      const res = await evaluate(`(async () => {
+        const styleEl = document.createElement('style');
+        styleEl.id = 'test-modern-sidebar-style';
+        styleEl.textContent = \`
+          #stage-slideover-sidebar {
+            --sidebar-surface-primary: rgb(22, 22, 22);
+            --bg-elevated-secondary: rgb(22, 22, 22);
+            width: 260px;
+            height: 500px;
+          }
+          .sidebar-scroll-fade::before {
+            content: "";
+            position: absolute;
+            inset-inline: 0;
+            top: 0;
+            height: 20px;
+            background: rgb(22, 22, 22);
+          }
+        \`;
+        document.head.appendChild(styleEl);
+
+        const appShell = document.createElement('div');
+        appShell.id = 'modern-sidebar-host';
+        appShell.style.backgroundColor = 'rgb(22, 22, 22)';
+        appShell.innerHTML = \`
+          <div class="shell-inner" style="background-color: rgb(22, 22, 22);">
+            <div id="stage-slideover-sidebar" style="background-color: var(--bg-elevated-secondary);">
+              <div class="sidebar-inner-wrapper" style="display: flex; flex-direction: column; height: 100%; background-color: rgb(22, 22, 22);">
+                <div id="stage-sidebar-tiny-bar" style="background: transparent;"></div>
+                <nav aria-label="Chat history" style="display: flex; flex-direction: column; height: 100%; background-color: rgb(22, 22, 22);">
+                  <div class="sticky-header-wrap bg-token-bg-elevated-secondary" style="background-color: rgb(14, 14, 14); height: 40px;">
+                    <div id="sidebar-header" style="display: flex; justify-content: space-between; background-color: rgb(14, 14, 14);">
+                      <a href="/" aria-label="Home">ChatGPT</a>
+                      <button type="button" aria-label="Close sidebar">X</button>
+                    </div>
+                  </div>
+                  <aside class="sidebar-top-links" style="background-color: rgb(22, 22, 22);">
+                    <div class="new-chat-pill" style="border-radius: 8px; height: 36px; background-color: rgb(46, 46, 46);">
+                      <a href="/">New chat</a>
+                    </div>
+                    <a href="/library">Library</a>
+                  </aside>
+                  <div class="sidebar-scroll-fade" style="position: relative; flex: 1; overflow-y: auto; background-color: rgb(22, 22, 22); min-height: 180px;">
+                    <div class="history-section-sticky" style="position: sticky; top: 0; height: 28px; background-color: rgb(22, 22, 22);">Recents</div>
+                    <div class="chat-row-group" style="border-radius: 8px; height: 36px; background-color: rgb(40, 40, 40);">
+                      <a href="/c/one">Java Crash Course</a>
+                      <button type="button" aria-label="Options">...</button>
+                    </div>
+                    <a href="/c/two">OS Notes</a>
+                  </div>
+                  <div class="sidebar-footer-wrap" style="background-color: rgb(22, 22, 22); height: 90px;">
+                    <button type="button" class="profile-btn" style="border-radius: 8px; height: 40px; background-color: transparent;">
+                      <span class="avatar-badge" style="display: inline-block; width: 28px; height: 28px; border-radius: 9999px; background-color: rgb(44, 182, 156);">AS</span>
+                      <span>Aryan Sinha</span>
+                    </button>
+                    <button type="button" class="claim-offer-btn" style="border-radius: 9999px; height: 36px; background-color: rgb(33, 33, 33);">Claim offer</button>
+                  </div>
+                  <div role="menu" class="sidebar-context-menu" style="background-color: rgb(42, 42, 42);">Rename / Delete</div>
+                </nav>
+              </div>
+            </div>
+          </div>
+        \`;
+        document.body.appendChild(appShell);
+        await new Promise(r => setTimeout(r, 350));
+
+        const root = appShell.querySelector('#stage-slideover-sidebar');
+        const rootCs = window.getComputedStyle(root);
+        const shellInnerBg = window.getComputedStyle(appShell.querySelector('.shell-inner')).backgroundColor;
+        const innerWrapBg = window.getComputedStyle(appShell.querySelector('.sidebar-inner-wrapper')).backgroundColor;
+        const navBg = window.getComputedStyle(appShell.querySelector('nav')).backgroundColor;
+        const navBlur = window.getComputedStyle(appShell.querySelector('nav')).backdropFilter;
+        const headerWrapBg = window.getComputedStyle(appShell.querySelector('.sticky-header-wrap')).backgroundColor;
+        const headerElBg = window.getComputedStyle(appShell.querySelector('#sidebar-header')).backgroundColor;
+        const asideBg = window.getComputedStyle(appShell.querySelector('.sidebar-top-links')).backgroundColor;
+        const scrollWrapBg = window.getComputedStyle(appShell.querySelector('.sidebar-scroll-fade')).backgroundColor;
+        const scrollPseudoBg = window.getComputedStyle(appShell.querySelector('.sidebar-scroll-fade'), '::before').backgroundColor;
+        const stickySecCs = window.getComputedStyle(appShell.querySelector('.history-section-sticky'));
+        const footerWrapBg = window.getComputedStyle(appShell.querySelector('.sidebar-footer-wrap')).backgroundColor;
+
+        const newChatBg = window.getComputedStyle(appShell.querySelector('.new-chat-pill')).backgroundColor;
+        const chatRowBg = window.getComputedStyle(appShell.querySelector('.chat-row-group')).backgroundColor;
+        const avatarBg = window.getComputedStyle(appShell.querySelector('.avatar-badge')).backgroundColor;
+        const claimOfferBg = window.getComputedStyle(appShell.querySelector('.claim-offer-btn')).backgroundColor;
+        const menuBg = window.getComputedStyle(appShell.querySelector('.sidebar-context-menu')).backgroundColor;
+
+        const rootBg = rootCs.backgroundColor;
+        const rootBlur = rootCs.backdropFilter;
+        const stickyBg = stickySecCs.backgroundColor;
+        const stickyBlur = stickySecCs.backdropFilter;
+
+        const darkFrostedOk = rootBg === 'rgba(24, 24, 24, 0.4)' && (rootBlur || '').includes('blur(12px)');
+        const innerTransparentOk =
+          shellInnerBg === 'rgba(0, 0, 0, 0)' &&
+          innerWrapBg === 'rgba(0, 0, 0, 0)' &&
+          navBg === 'rgba(0, 0, 0, 0)' &&
+          navBlur === 'none' &&
+          headerWrapBg === 'rgba(0, 0, 0, 0)' &&
+          headerElBg === 'rgba(0, 0, 0, 0)' &&
+          asideBg === 'rgba(0, 0, 0, 0)' &&
+          scrollWrapBg === 'rgba(0, 0, 0, 0)' &&
+          scrollPseudoBg === 'rgba(0, 0, 0, 0)' &&
+          stickyBg === 'rgba(0, 0, 0, 0)' &&
+          (stickyBlur || '').includes('blur(12px)') &&
+          footerWrapBg === 'rgba(0, 0, 0, 0)';
+        const interactivePreservedOk =
+          newChatBg === 'rgb(46, 46, 46)' &&
+          chatRowBg === 'rgb(40, 40, 40)' &&
+          avatarBg === 'rgb(44, 182, 156)' &&
+          claimOfferBg === 'rgb(33, 33, 33)' &&
+          menuBg === 'rgb(42, 42, 42)';
+
+        // Also verify light mode adapts frosted tint cleanly
+        document.documentElement.classList.remove('dark');
+        document.documentElement.setAttribute('data-theme', 'light');
+        await new Promise(r => setTimeout(r, 120));
+        const lightBg = window.getComputedStyle(root).backgroundColor;
+        const lightFrostedOk = lightBg === 'rgba(255, 255, 255, 0.4)';
+
+        // Restore dark mode, verify disabling cleans sidebar attributes, then re-enable & cleanup
+        document.documentElement.classList.add('dark');
+        document.documentElement.setAttribute('data-theme', 'dark');
+        await new Promise(r => setTimeout(r, 120));
+
+        for (const l of window.chrome.runtime.onMessage.listeners) {
+          l({ type: 'SET_CFG_PARTIAL', patch: { enabled: false } }, {}, () => {});
+        }
+        await new Promise(r => setTimeout(r, 100));
+        const cleanedUpOk =
+          document.querySelectorAll('[data-cg-sidebar-surface], [data-cg-sidebar-ancestor], [data-cg-sidebar-transparent], [data-cg-sidebar-sticky], [data-cg-sidebar-pseudo-bg]').length === 0 &&
+          window.getComputedStyle(root).backgroundColor === 'rgb(22, 22, 22)';
+
+        for (const l of window.chrome.runtime.onMessage.listeners) {
+          l({ type: 'SET_CFG_PARTIAL', patch: { enabled: true } }, {}, () => {});
+        }
+        await new Promise(r => setTimeout(r, 100));
+
+        appShell.remove();
+        styleEl.remove();
+        await new Promise(r => setTimeout(r, 300));
+
+        const diag =
+          'darkFrosted=' + darkFrostedOk + '(' + rootBg + '|' + rootBlur + ')' +
+          ', lightFrosted=' + lightFrostedOk + '(' + lightBg + ')' +
+          ', innerTransparent=' + innerTransparentOk +
+          '[shell=' + shellInnerBg + ',wrap=' + innerWrapBg + ',nav=' + navBg + ',navBlur=' + navBlur + ',hw=' + headerWrapBg + ',he=' + headerElBg + ',aside=' + asideBg + ',scroll=' + scrollWrapBg + ',pseudo=' + scrollPseudoBg + ',sticky=' + stickyBg + '|' + stickyBlur + ',footer=' + footerWrapBg + ']' +
+          ', interactivePreserved=' + interactivePreservedOk +
+          '[new=' + newChatBg + ',row=' + chatRowBg + ',avatar=' + avatarBg + ',claim=' + claimOfferBg + ',menu=' + menuBg + ']' +
+          ', cleanedUp=' + cleanedUpOk;
+
+        const pass = darkFrostedOk && innerTransparentOk && lightFrostedOk && interactivePreservedOk && cleanedUpOk;
+        return {
+          pass,
+          info: diag,
+          error: pass ? undefined : diag
+        };
+      })()`);
+      return res;
+    });
+
+    // 13. Mobile #stage-popover-sidebar gets frosted glass without affecting unrelated dialogs
+    await assertTest("Mobile #stage-popover-sidebar gets frosted glass while unrelated dialogs stay solid", async () => {
+      const res = await evaluate(`(async () => {
+        const host = document.createElement('div');
+        host.id = 'mobile-popover-host';
+        host.innerHTML = \`
+          <div class="popover-scrim" style="position: fixed; inset: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.5);">
+            <div id="stage-popover-sidebar" role="dialog" style="width: 260px; height: 480px; background-color: rgb(22, 22, 22);">
+              <nav aria-label="Chat history" style="height: 100%; background-color: rgb(22, 22, 22);">
+                <a href="/c/mobile-1">Mobile Chat</a>
+              </nav>
+            </div>
+          </div>
+          <div id="settings-modal" role="dialog" style="width: 300px; height: 200px; background-color: rgb(40, 40, 40);">
+            <nav aria-label="Settings tabs" style="background-color: rgb(45, 45, 45);">Settings Nav</nav>
+          </div>
+        \`;
+        document.body.appendChild(host);
+        await new Promise(r => setTimeout(r, 350));
+
+        const scrimBg = window.getComputedStyle(host.querySelector('.popover-scrim')).backgroundColor;
+        const popoverBg = window.getComputedStyle(host.querySelector('#stage-popover-sidebar')).backgroundColor;
+        const popoverNavBg = window.getComputedStyle(host.querySelector('#stage-popover-sidebar nav')).backgroundColor;
+        const modalBg = window.getComputedStyle(host.querySelector('#settings-modal')).backgroundColor;
+        const modalNavBg = window.getComputedStyle(host.querySelector('#settings-modal nav')).backgroundColor;
+
+        host.remove();
+        await new Promise(r => setTimeout(r, 300));
+
+        const pass =
+          scrimBg === 'rgba(0, 0, 0, 0.5)' &&
+          popoverBg === 'rgba(24, 24, 24, 0.4)' &&
+          popoverNavBg === 'rgba(0, 0, 0, 0)' &&
+          modalBg === 'rgb(40, 40, 40)' &&
+          modalNavBg === 'rgb(45, 45, 45)';
+        const diag = 'scrim=' + scrimBg + ', popover=' + popoverBg + ', popoverNav=' + popoverNavBg + ', modal=' + modalBg + ', modalNav=' + modalNavBg;
+
+        return {
+          pass,
+          info: diag,
+          error: pass ? undefined : diag
+        };
+      })()`);
+      return res;
+    });
+
+    // 14. Manifest V3 version specification compliance (Chromium 1-4 dot-separated integer constraint)
     await assertTest("Manifest V3 version specification strictly complies with Chromium integer constraints", async () => {
       const manifestPath = path.join(extensionBuildDir, 'manifest.json');
       if (!fs.existsSync(manifestPath)) {

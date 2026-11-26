@@ -19,7 +19,7 @@ Canvas for ChatGPT transforms your ChatGPT interface into a personalized, focuse
   - **Upload Local Media**: Directly upload images, animated GIFs, or looping videos (`MP4`, `WEBM`, `OGG`, `MOV`) from your device.
   - **Custom Web URLs**: Paste any web image, GIF, or video link.
   - **Visual Customization**: Real-time slider controls for backdrop opacity, Gaussian blur radius, and dark/light overlay gradients.
-  - **Theme-Aware Engine**: Harmonizes automatically with ChatGPT light and dark modes with deep DOM transparency and clean rounded prompt styling.
+  - **Theme-Aware Engine & Frosted Sidebar (`v2.1`)**: Harmonizes automatically with ChatGPT light and dark modes with deep DOM transparency, clean rounded prompt styling, and a unified frosted-glass sidebar (desktop slide-over & mobile popover) without opaque slabs or header seams.
 
 - **Privacy & Security**
   - Operates completely client-side in your browser.
@@ -41,7 +41,7 @@ Canvas for ChatGPT transforms your ChatGPT interface into a personalized, focuse
 
 ## 🚀 Browser Installation Guide
 
-Download the latest **`canvas-for-chatgpt-v.2.0.zip`** from [GitHub Releases](https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases) and **extract the ZIP** into a permanent folder on your computer (for example, `Documents/Canvas-For-ChatGPT`).
+Download the latest **`canvas-for-chatgpt-v2.1.zip`** from [GitHub Releases](https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases) and **extract the ZIP** into a permanent folder on your computer (for example, `Documents/Canvas-For-ChatGPT`).
 
 > **Note:** Do not delete the extracted folder after installing—your browser loads the extension from that folder. If you instead clone the source repo, run `npm install && npm run build` first and select `build/chrome-mv3-prod`.
 
@@ -87,7 +87,7 @@ Download the latest **`canvas-for-chatgpt-v.2.0.zip`** from [GitHub Releases](ht
 4. Refresh [chatgpt.com](https://chatgpt.com) and open the extension from the top-right toolbar / Site Control menu.
 
 ### Updating an Existing Installation
-When upgrading to a newer release (e.g. `v.2.0`), extract the new release ZIP over your existing folder (or load the new folder) and click the **Reload** (`↻`) button on the **Canvas for ChatGPT** card on your browser's extensions page, then refresh ChatGPT.
+When upgrading to a newer release (e.g. `v2.1`), extract the new release ZIP over your existing folder (or load the new folder) and click the **Reload** (`↻`) button on the **Canvas for ChatGPT** card on your browser's extensions page, then refresh ChatGPT.
 
 ### Mozilla Firefox & Safari
 - The release ZIP is built for **Chromium Manifest V3** (`chrome-mv3`) browsers listed above and cannot be loaded directly in **Safari** or standard **Firefox**.
@@ -122,10 +122,10 @@ npm run package
 
 ### Architecture
 
-- `content.ts`: Main content script managing backdrop rendering, per-chat route resolution (`/c/...`, `/g/...`, `/share/...`), DOM mutation recovery, and prompt composer styling.
+- `content.ts`: Main content script managing backdrop rendering, per-chat route resolution (`/c/...`, `/g/...`, `/share/...`), DOM mutation recovery, unified frosted-glass sidebar styling, and prompt composer styling.
 - `popup.tsx`: Toolbar popup UI with **This Chat** vs **Global Default** scope tabs, presets, local upload, custom URLs, visual sliders, and the **Per-Chat Wallpapers** manager.
 - `options.tsx`: Options and documentation viewer rendering `README.md`.
-- `test/run-browser-tests.js`: End-to-end CDP browser test suite validating background injection, per-chat wallpaper switching, composer wrapper transparency, DOM mutation recovery, and Manifest V3 compliance.
+- `test/run-browser-tests.js`: End-to-end CDP browser test suite validating background injection, per-chat wallpaper switching, unified desktop/mobile sidebar styling, composer wrapper transparency, DOM mutation recovery, and Manifest V3 compliance.
 
 ---
 

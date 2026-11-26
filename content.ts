@@ -132,14 +132,7 @@ const writeCfg = async (next: Cfg) => {
 // ------------------------------
 const sel = {
   mainWrapper: "main, [role='main']",
-  sidebar: "nav, [aria-label='Chat history'], aside",
-  chatListHeader: "nav > div:first-child",
-  sidebarFooter: "nav > div:last-child",
-  sidebarNav: "nav",
-  pageHeader: "header, [data-testid='page-header']",
-  mobileHeader: "header",
-  stickyAsides: "aside",
-  composerWrapper: "[data-composer-surface], [id='composer-background']"
+  pageHeader: "header, [data-testid='page-header']"
 }
 
 // ------------------------------
@@ -197,6 +190,9 @@ const BACKGROUND_CSS = `
     --main-surface-secondary: transparent !important;
     --main-surface-tertiary: transparent !important;
     --bg-elevated-secondary: transparent !important;
+    --sidebar-surface-primary: transparent !important;
+    --sidebar-surface: transparent !important;
+    --sidebar-bg: transparent !important;
     --color-background-panel: transparent !important;
     --color-background-surface: transparent !important;
     --color-surface-primary: transparent !important;
@@ -218,11 +214,15 @@ const BACKGROUND_CSS = `
   html.cg-customizer-background-enabled [data-testid="ds-document-layout"],
   html.cg-customizer-background-enabled [data-app-shell],
   html.cg-customizer-background-enabled #web-mobile-root,
-  html.cg-customizer-background-enabled body > div,
-  html.cg-customizer-background-enabled body > div > div,
-  html.cg-customizer-background-enabled body > div > div > div,
-  html.cg-customizer-background-enabled body > div > div > div > div {
+  html.cg-customizer-background-enabled [data-cg-sidebar-ancestor="true"],
+  html.cg-customizer-background-enabled :where(body > div, body > div > div, body > div > div > div, body > div > div > div > div):not(:where([data-cg-sidebar-surface="true"], [data-cg-sidebar-sticky="true"], [role="dialog"], [role="menu"], [role="alertdialog"], [role="popover"], [role="tooltip"], [data-radix-popper-content-wrapper], [data-radix-portal] *, :has([role="dialog"]):not(:has(main)))) {
     background-color: transparent !important;
+  }
+
+  html.cg-customizer-background-enabled [data-cg-sidebar-ancestor="true"] {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
   }
 
   html.cg-customizer-background-enabled main {
@@ -240,39 +240,80 @@ const BACKGROUND_CSS = `
     background-image: none !important;
   }
 
-  html.cg-customizer-background-enabled div[class*="main-surface"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]),
-  html.cg-customizer-background-enabled div[class*="bg-token-main-surface"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]),
-  html.cg-customizer-background-enabled div[class*="bg-token-surface"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]),
-  html.cg-customizer-background-enabled div[class*="bg-surface-primary"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]),
-  html.cg-customizer-background-enabled div[class*="bg-surface-secondary"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]),
-  html.cg-customizer-background-enabled [class*="bg-token-bg-primary"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]):not(form *),
-  html.cg-customizer-background-enabled [class*="bg-token-bg-secondary"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]):not(form *),
-  html.cg-customizer-background-enabled [class*="bg-token-bg-elevated"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]):not(form *) {
+  html.cg-customizer-background-enabled div[class*="main-surface"]:not(:where([data-composer-surface], [id="composer-background"], [data-cg-composer-pill], [data-cg-sidebar-surface="true"], [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *)),
+  html.cg-customizer-background-enabled div[class*="bg-token-main-surface"]:not(:where([data-composer-surface], [id="composer-background"], [data-cg-composer-pill], [data-cg-sidebar-surface="true"], [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *)),
+  html.cg-customizer-background-enabled div[class*="bg-token-surface"]:not(:where([data-composer-surface], [id="composer-background"], [data-cg-composer-pill], [data-cg-sidebar-surface="true"], [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *)),
+  html.cg-customizer-background-enabled div[class*="bg-surface-primary"]:not(:where([data-composer-surface], [id="composer-background"], [data-cg-composer-pill], [data-cg-sidebar-surface="true"], [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *)),
+  html.cg-customizer-background-enabled div[class*="bg-surface-secondary"]:not(:where([data-composer-surface], [id="composer-background"], [data-cg-composer-pill], [data-cg-sidebar-surface="true"], [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *)),
+  html.cg-customizer-background-enabled [class*="bg-token-sidebar-surface-primary"]:not(:where(a, a *, button, button *, [data-cg-sidebar-surface="true"], [role="menu"], [role="menu"] *, [role="dialog"]:not(#stage-popover-sidebar), [role="dialog"]:not(#stage-popover-sidebar) *)),
+  html.cg-customizer-background-enabled [class*="bg-token-bg-primary"]:not(:where([data-composer-surface], [id="composer-background"], [data-cg-composer-pill], [data-cg-sidebar-surface="true"], form *, [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *)),
+  html.cg-customizer-background-enabled [class*="bg-token-bg-secondary"]:not(:where([data-composer-surface], [id="composer-background"], [data-cg-composer-pill], [data-cg-sidebar-surface="true"], form *, [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *)),
+  html.cg-customizer-background-enabled [class*="bg-token-bg-elevated"]:not(:where([data-composer-surface], [id="composer-background"], [data-cg-composer-pill], [data-cg-sidebar-surface="true"], form *, [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *)) {
     background-color: transparent !important;
   }
 
-  /* Barra lateral con efecto frosted glass */
-  html.cg-customizer-background-enabled nav,
-  html.cg-customizer-background-enabled aside,
-  html.cg-customizer-background-enabled [aria-label="Chat history"] {
+  /* Barra lateral con efecto frosted glass unificado */
+  html.cg-customizer-background-enabled :where(#stage-slideover-sidebar, #stage-popover-sidebar, [data-testid="sidebar"], [data-testid="stage-sidebar"], [aria-label="Chat history"]):not([data-cg-sidebar-transparent="true"]),
+  html.cg-customizer-background-enabled [data-cg-sidebar-surface="true"] {
+    --sidebar-surface-primary: transparent !important;
+    --sidebar-surface: transparent !important;
+    --sidebar-bg: transparent !important;
+    --bg-elevated-secondary: transparent !important;
+    --bg-elevated-primary: transparent !important;
+    --bg-secondary: transparent !important;
+    background: none !important;
+    background-image: none !important;
     background-color: rgba(255, 255, 255, 0.4) !important;
     backdrop-filter: blur(12px) !important;
     -webkit-backdrop-filter: blur(12px) !important;
   }
 
-  html.dark.cg-customizer-background-enabled nav,
-  html[data-theme="dark"].cg-customizer-background-enabled nav,
-  html[data-chat-theme="dark"].cg-customizer-background-enabled nav,
-  html[data-cg-theme="dark"].cg-customizer-background-enabled nav,
-  html.dark.cg-customizer-background-enabled aside,
-  html[data-theme="dark"].cg-customizer-background-enabled aside,
-  html[data-chat-theme="dark"].cg-customizer-background-enabled aside,
-  html[data-cg-theme="dark"].cg-customizer-background-enabled aside,
-  html.dark.cg-customizer-background-enabled [aria-label="Chat history"],
-  html[data-theme="dark"].cg-customizer-background-enabled [aria-label="Chat history"],
-  html[data-chat-theme="dark"].cg-customizer-background-enabled [aria-label="Chat history"],
-  html[data-cg-theme="dark"].cg-customizer-background-enabled [aria-label="Chat history"] {
+  html.dark.cg-customizer-background-enabled :where(#stage-slideover-sidebar, #stage-popover-sidebar, [data-testid="sidebar"], [data-testid="stage-sidebar"], [aria-label="Chat history"]):not([data-cg-sidebar-transparent="true"]),
+  html[data-theme="dark"].cg-customizer-background-enabled :where(#stage-slideover-sidebar, #stage-popover-sidebar, [data-testid="sidebar"], [data-testid="stage-sidebar"], [aria-label="Chat history"]):not([data-cg-sidebar-transparent="true"]),
+  html[data-chat-theme="dark"].cg-customizer-background-enabled :where(#stage-slideover-sidebar, #stage-popover-sidebar, [data-testid="sidebar"], [data-testid="stage-sidebar"], [aria-label="Chat history"]):not([data-cg-sidebar-transparent="true"]),
+  html[data-cg-theme="dark"].cg-customizer-background-enabled :where(#stage-slideover-sidebar, #stage-popover-sidebar, [data-testid="sidebar"], [data-testid="stage-sidebar"], [aria-label="Chat history"]):not([data-cg-sidebar-transparent="true"]),
+  html.dark.cg-customizer-background-enabled [data-cg-sidebar-surface="true"],
+  html[data-theme="dark"].cg-customizer-background-enabled [data-cg-sidebar-surface="true"],
+  html[data-chat-theme="dark"].cg-customizer-background-enabled [data-cg-sidebar-surface="true"],
+  html[data-cg-theme="dark"].cg-customizer-background-enabled [data-cg-sidebar-surface="true"] {
     background-color: rgba(24, 24, 24, 0.4) !important;
+  }
+
+  /* Capas estructurales internas de la barra lateral: transparentes para evitar paneles opacos o doble glass */
+  html.cg-customizer-background-enabled [data-cg-sidebar-transparent="true"] {
+    --sidebar-surface-primary: transparent !important;
+    --sidebar-surface: transparent !important;
+    --sidebar-bg: transparent !important;
+    --bg-elevated-secondary: transparent !important;
+    --bg-elevated-primary: transparent !important;
+    --bg-secondary: transparent !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* Elementos sticky dentro de una lista desplazable: mantienen desenfoque sin oscurecerse en reposo */
+  html.cg-customizer-background-enabled [data-cg-sidebar-sticky="true"] {
+    --sidebar-surface-primary: transparent !important;
+    --sidebar-surface: transparent !important;
+    --sidebar-bg: transparent !important;
+    --bg-elevated-secondary: transparent !important;
+    --bg-elevated-primary: transparent !important;
+    --bg-secondary: transparent !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+  }
+
+  html.cg-customizer-background-enabled [data-cg-sidebar-pseudo-bg="true"]::before,
+  html.cg-customizer-background-enabled [data-cg-sidebar-pseudo-bg="true"]::after {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
   }
 
   /* Compositor: conservar fondo sólido únicamente en la superficie del input (sin pintar wrappers rectangulares) */
@@ -405,7 +446,17 @@ const COMPOSER_INPUT_SELECTOR = "textarea, #prompt-textarea, [contenteditable='t
 const COMPOSER_STOP_SELECTOR =
   "main, [role='main'], [data-testid='ds-document-layout'], [data-app-shell], nav, aside, article, [data-testid^='conversation-turn'], [data-message-author-role], [role='dialog'], [role='menu'], [role='alertdialog'], [role='popover'], [role='tooltip']"
 const COMPOSER_SKIP_SELECTOR =
-  "[role='dialog'], [role='menu'], [role='alertdialog'], [role='popover'], [role='tooltip'], article, [data-testid^='conversation-turn'], [data-message-author-role]"
+  "[role='dialog'], [role='menu'], [role='alertdialog'], [role='popover'], [role='tooltip'], article, [data-testid^='conversation-turn'], [data-message-author-role], #stage-slideover-sidebar, #stage-popover-sidebar, nav[aria-label='Chat history']"
+
+const SIDEBAR_EXPLICIT_SELECTOR =
+  "#stage-slideover-sidebar, #stage-popover-sidebar, [data-testid='sidebar'], [data-testid='stage-sidebar']"
+const SIDEBAR_FALLBACK_SELECTOR = "nav, [aria-label='Chat history'], aside"
+const SIDEBAR_SKIP_ANCESTOR_SELECTOR =
+  "main, [role='main'], article, [role='menu'], [role='alertdialog'], [role='tooltip'], [role='popover']"
+const SIDEBAR_DESCENDANT_PRUNE_SELECTOR =
+  "a, button, input, textarea, select, label, svg, img, video, canvas, [role='menuitem'], [role='option'], [role='menu'], [role='alertdialog'], [role='tooltip'], [role='popover'], [data-radix-popper-content-wrapper]"
+const SIDEBAR_STRUCTURAL_TAG_SELECTOR =
+  "nav, aside, header, footer, section, ul, ol, #sidebar-header, #history, #stage-sidebar-tiny-bar"
 
 function isDarkTheme(): boolean {
   const html = document.documentElement
@@ -423,6 +474,21 @@ function isDarkTheme(): boolean {
   ) {
     return false
   }
+  const body = document.body
+  if (
+    body?.classList.contains("dark") ||
+    body?.getAttribute("data-theme") === "dark" ||
+    body?.getAttribute("data-chat-theme") === "dark"
+  ) {
+    return true
+  }
+  if (
+    body?.classList.contains("light") ||
+    body?.getAttribute("data-theme") === "light" ||
+    body?.getAttribute("data-chat-theme") === "light"
+  ) {
+    return false
+  }
   try {
     const cs = window.getComputedStyle(html).colorScheme
     if (cs && cs.includes("dark") && !cs.includes("light")) return true
@@ -430,15 +496,15 @@ function isDarkTheme(): boolean {
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false
 }
 
-function hasRoundedCorners(el: HTMLElement): boolean {
+function hasRoundedCorners(el: HTMLElement, minRadius = 10, minHeight = 32): boolean {
   const rect = el.getBoundingClientRect()
-  if (rect.height < 32) return false
+  if (rect.height < minHeight) return false
   const cs = window.getComputedStyle(el)
   const tl = parseFloat(cs.borderTopLeftRadius) || 0
   const tr = parseFloat(cs.borderTopRightRadius) || 0
   const bl = parseFloat(cs.borderBottomLeftRadius) || 0
   const br = parseFloat(cs.borderBottomRightRadius) || 0
-  return Math.min(tl, tr, bl, br) >= 10
+  return Math.min(tl, tr, bl, br) >= minRadius
 }
 
 function styleHasBackground(cs: CSSStyleDeclaration): boolean {
@@ -474,6 +540,132 @@ function syncAttributeSet(attr: string, desired: Map<HTMLElement, string>) {
       el.setAttribute(attr, val)
     }
   })
+}
+
+function findSidebarRoots(): HTMLElement[] {
+  const candidates = new Set<HTMLElement>()
+  document.querySelectorAll<HTMLElement>(SIDEBAR_EXPLICIT_SELECTOR).forEach((el) => {
+    if (!el.closest(SIDEBAR_SKIP_ANCESTOR_SELECTOR)) {
+      candidates.add(el)
+    }
+  })
+  document.querySelectorAll<HTMLElement>(SIDEBAR_FALLBACK_SELECTOR).forEach((el) => {
+    if (
+      el.closest(SIDEBAR_SKIP_ANCESTOR_SELECTOR) ||
+      el.closest("[role='dialog']:not(#stage-popover-sidebar)") ||
+      el.querySelector("main, [role='main']")
+    ) {
+      return
+    }
+    candidates.add(el)
+  })
+  const all = Array.from(candidates)
+  return all.filter((el) => !all.some((other) => other !== el && other.contains(el)))
+}
+
+/**
+ * Unifies the sidebar into a single frosted-glass panel by clearing opaque backgrounds
+ * on layout ancestors and inner structural wrappers while preserving interactive pills, avatars, and menus.
+ */
+function syncSidebarStyles() {
+  const desiredSurfaces = new Map<HTMLElement, string>()
+  const desiredAncestors = new Map<HTMLElement, string>()
+  const desiredTransparent = new Map<HTMLElement, string>()
+  const desiredSticky = new Map<HTMLElement, string>()
+  const desiredPseudoBgs = new Map<HTMLElement, string>()
+
+  const sidebarRoots = findSidebarRoots()
+  sidebarRoots.forEach((root) => {
+    desiredSurfaces.set(root, "true")
+
+    // Clear opaque backgrounds on layout ancestors up to body (preserving modal backdrop scrims)
+    let ancestor = root.parentElement
+    while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+      const ancestorCs = window.getComputedStyle(ancestor)
+      const isFullscreenScrim =
+        (ancestor.matches("[role='dialog'], [data-radix-portal]") ||
+          (ancestorCs.position === "fixed" && ancestor.getBoundingClientRect().width >= window.innerWidth * 0.9)) &&
+        !ancestor.querySelector("main, [role='main']")
+      if (isFullscreenScrim) break
+      desiredAncestors.set(ancestor, "true")
+      ancestor = ancestor.parentElement
+    }
+
+    // Temporarily clear prior sidebar descendant markers in a batch so computed background checks stay accurate
+    root
+      .querySelectorAll<HTMLElement>("[data-cg-sidebar-transparent], [data-cg-sidebar-sticky], [data-cg-sidebar-pseudo-bg]")
+      .forEach((el) => {
+        el.removeAttribute("data-cg-sidebar-transparent")
+        el.removeAttribute("data-cg-sidebar-sticky")
+        el.removeAttribute("data-cg-sidebar-pseudo-bg")
+      })
+    root.removeAttribute("data-cg-sidebar-pseudo-bg")
+
+    if (hasPseudoBackground(root)) {
+      desiredPseudoBgs.set(root, "true")
+    }
+
+    const rootCs = window.getComputedStyle(root)
+    const rootScrollable = rootCs.overflowY === "auto" || rootCs.overflowY === "scroll"
+
+    const walkChildren = (parent: HTMLElement, hasScrollableAncestor: boolean) => {
+      const children = parent.children
+      for (let i = 0; i < children.length; i++) {
+        const el = children[i] as HTMLElement
+        if (el.id === BACKGROUND_ID) continue
+        if (el.matches(SIDEBAR_DESCENDANT_PRUNE_SELECTOR)) continue
+        if (el.matches("[role='dialog']") && el.id !== "stage-popover-sidebar") continue
+        if (el.matches("[role='button'], [role='link']") && !el.querySelector("nav, aside, ul, ol")) continue
+
+        const cs = window.getComputedStyle(el)
+        const rect = el.getBoundingClientRect()
+        const hasBox = rect.width > 0 && rect.height > 0
+        if (hasBox && (rect.width <= 4 || rect.height <= 4)) continue
+
+        const isStructuralTag = el.matches(SIDEBAR_STRUCTURAL_TAG_SELECTOR)
+        const isAriaHidden = el.getAttribute("aria-hidden") === "true"
+        if (!isStructuralTag && !isAriaHidden && hasBox && rect.width < 44 && rect.height < 44) continue
+
+        const isSticky = cs.position === "sticky" || cs.position === "fixed"
+        const isCompactItemPill =
+          !isStructuralTag &&
+          !isSticky &&
+          !isAriaHidden &&
+          el.querySelectorAll("a").length <= 1 &&
+          !el.querySelector("nav, aside, ul, ol, h2, h3, h4") &&
+          ((hasBox && rect.height < 68 && hasRoundedCorners(el, 6, 24)) ||
+            (!hasBox && el.matches("li, [data-testid*='history-item']")))
+        if (isCompactItemPill) continue
+
+        if (isSticky && hasScrollableAncestor) {
+          desiredSticky.set(el, "true")
+        } else if (
+          isStructuralTag ||
+          isSticky ||
+          isAriaHidden ||
+          cs.overflowY === "auto" ||
+          cs.overflowY === "scroll" ||
+          hasVisibleBackground(el)
+        ) {
+          desiredTransparent.set(el, "true")
+        }
+
+        if (hasPseudoBackground(el)) {
+          desiredPseudoBgs.set(el, "true")
+        }
+
+        walkChildren(el, hasScrollableAncestor || cs.overflowY === "auto" || cs.overflowY === "scroll")
+      }
+    }
+
+    walkChildren(root, rootScrollable)
+  })
+
+  syncAttributeSet("data-cg-sidebar-surface", desiredSurfaces)
+  syncAttributeSet("data-cg-sidebar-ancestor", desiredAncestors)
+  syncAttributeSet("data-cg-sidebar-transparent", desiredTransparent)
+  syncAttributeSet("data-cg-sidebar-sticky", desiredSticky)
+  syncAttributeSet("data-cg-sidebar-pseudo-bg", desiredPseudoBgs)
 }
 
 /**
@@ -567,16 +759,22 @@ function syncComposerStyles() {
   syncAttributeSet("data-cg-composer-pill", desiredPills)
 }
 
+function syncDynamicUIStyles() {
+  syncSidebarStyles()
+  syncComposerStyles()
+}
+
 function applyUIStyles() {
   const isDark = isDarkTheme()
   document.documentElement.setAttribute("data-cg-theme", isDark ? "dark" : "light")
-  const blurBG = isDark ? "rgba(24, 24, 24, 0.4)" : "rgba(255, 255, 255, 0.4)"
-  const blurFx = "blur(12px)"
 
   // Variables de color de superficie
   document.documentElement.style.setProperty("--bg-primary", "transparent")
   document.documentElement.style.setProperty("--main-surface-primary", "transparent")
   document.documentElement.style.setProperty("--bg-elevated-secondary", "transparent")
+  document.documentElement.style.setProperty("--sidebar-surface-primary", "transparent")
+  document.documentElement.style.setProperty("--sidebar-surface", "transparent")
+  document.documentElement.style.setProperty("--sidebar-bg", "transparent")
 
   // Contenedor principal y ancestros hacia body
   const mainWrapper = document.querySelector<HTMLElement>(sel.mainWrapper)
@@ -589,43 +787,16 @@ function applyUIStyles() {
     }
   }
 
-  // Sidebar
-  const sidebar = document.querySelector<HTMLElement>(sel.sidebar)
-  if (sidebar) sidebar.style.backgroundColor = "transparent"
-
-  // Encabezado sticky de la lista de chats
-  const chatListHeader = document.querySelector<HTMLElement>(sel.chatListHeader)
-  if (chatListHeader) {
-    chatListHeader.style.backgroundColor = blurBG
-    chatListHeader.style.backdropFilter = blurFx
-    ;(chatListHeader.style as any).webkitBackdropFilter = blurFx
-  }
-
-  // Footer sticky de la sidebar
-  const sidebarFooter = document.querySelector<HTMLElement>(sel.sidebarFooter)
-  if (sidebarFooter) {
-    sidebarFooter.style.backgroundColor = blurBG
-    sidebarFooter.style.backdropFilter = blurFx
-    ;(sidebarFooter.style as any).webkitBackdropFilter = blurFx
-  }
-
-  // Header de página
-  const pageHeader = document.querySelector<HTMLElement>(sel.pageHeader)
-  if (pageHeader) {
+  // Header de página (fuera de diálogos/menús)
+  document.querySelectorAll<HTMLElement>(sel.pageHeader).forEach((pageHeader) => {
+    if (pageHeader.closest("[role='dialog']:not(#stage-popover-sidebar), [role='menu']")) return
     pageHeader.style.backgroundColor = "transparent"
     pageHeader.style.backdropFilter = "none"
     ;(pageHeader.style as any).webkitBackdropFilter = "none"
-  }
-
-  // Asides sticky
-  document.querySelectorAll<HTMLElement>(sel.stickyAsides).forEach((aside) => {
-    aside.style.backgroundColor = blurBG
-    aside.style.backdropFilter = blurFx
-    ;(aside.style as any).webkitBackdropFilter = blurFx
   })
 
-  // Compositor y envoltorios externos
-  syncComposerStyles()
+  // Barra lateral y compositor
+  syncDynamicUIStyles()
 }
 
 // ------------------------------
@@ -636,38 +807,39 @@ function clearUIStyles() {
   document.documentElement.style.removeProperty("--bg-primary")
   document.documentElement.style.removeProperty("--main-surface-primary")
   document.documentElement.style.removeProperty("--bg-elevated-secondary")
+  document.documentElement.style.removeProperty("--sidebar-surface-primary")
+  document.documentElement.style.removeProperty("--sidebar-surface")
+  document.documentElement.style.removeProperty("--sidebar-bg")
 
-  const reset = (q: string, props: Array<keyof CSSStyleDeclaration | string>) => {
-    try {
-      const el = document.querySelector<HTMLElement>(q)
-      if (!el) return
-      props.forEach((p) => ((el.style as any)[p] = ""))
-    } catch {}
+  document.querySelectorAll<HTMLElement>(sel.pageHeader).forEach((pageHeader) => {
+    if (pageHeader.closest("[role='dialog']:not(#stage-popover-sidebar), [role='menu']")) return
+    pageHeader.style.backgroundColor = ""
+    pageHeader.style.backdropFilter = ""
+    ;(pageHeader.style as any).webkitBackdropFilter = ""
+  })
+  const mainWrapper = document.querySelector<HTMLElement>(sel.mainWrapper)
+  if (mainWrapper) {
+    mainWrapper.style.backgroundColor = ""
+    let ancestor = mainWrapper.parentElement
+    while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+      ancestor.style.backgroundColor = ""
+      ancestor = ancestor.parentElement
+    }
   }
 
-  reset(sel.pageHeader, ["backgroundColor", "backdropFilter", "webkitBackdropFilter"])
-  reset(sel.mobileHeader, ["backgroundColor", "backdropFilter", "webkitBackdropFilter"])
-  reset(sel.sidebar, ["backgroundColor"])
-  reset(sel.mainWrapper, ["backgroundColor"])
-  reset(sel.chatListHeader, ["backgroundColor", "backdropFilter", "webkitBackdropFilter"])
-  reset(sel.sidebarFooter, ["backgroundColor", "backdropFilter", "webkitBackdropFilter"])
-
-  try {
-    document.querySelectorAll<HTMLElement>(sel.stickyAsides).forEach((aside) => {
-      aside.style.backgroundColor = ""
-      aside.style.backdropFilter = ""
-      ;(aside.style as any).webkitBackdropFilter = ""
-    })
-  } catch {}
-
-  reset(sel.composerWrapper, ["backgroundColor"])
-
   document
-    .querySelectorAll<HTMLElement>("[data-cg-composer-wrapper], [data-cg-composer-pseudo-bg], [data-cg-composer-pill]")
+    .querySelectorAll<HTMLElement>(
+      "[data-cg-composer-wrapper], [data-cg-composer-pseudo-bg], [data-cg-composer-pill], [data-cg-sidebar-surface], [data-cg-sidebar-ancestor], [data-cg-sidebar-transparent], [data-cg-sidebar-sticky], [data-cg-sidebar-pseudo-bg]"
+    )
     .forEach((el) => {
       el.removeAttribute("data-cg-composer-wrapper")
       el.removeAttribute("data-cg-composer-pseudo-bg")
       el.removeAttribute("data-cg-composer-pill")
+      el.removeAttribute("data-cg-sidebar-surface")
+      el.removeAttribute("data-cg-sidebar-ancestor")
+      el.removeAttribute("data-cg-sidebar-transparent")
+      el.removeAttribute("data-cg-sidebar-sticky")
+      el.removeAttribute("data-cg-sidebar-pseudo-bg")
     })
 }
 
@@ -835,7 +1007,7 @@ function queueProcess() {
       if (!existing || !existing.isConnected || window.location.href !== lastRenderedUrl) {
         applyBackground()
       } else {
-        syncComposerStyles()
+        syncDynamicUIStyles()
       }
     }
   }, 250)
@@ -937,7 +1109,7 @@ function queueProcess() {
       if (!existing || !existing.isConnected || window.location.href !== lastRenderedUrl) {
         applyBackground()
       } else {
-        syncComposerStyles()
+        syncDynamicUIStyles()
       }
     }
   }, 6000)
