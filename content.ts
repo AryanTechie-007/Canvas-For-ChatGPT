@@ -77,7 +77,7 @@ const sel = {
   pageHeader: "header, [data-testid='page-header']",
   mobileHeader: "header",
   stickyAsides: "aside",
-  composerWrapper: "[data-composer-surface], form"
+  composerWrapper: "[data-composer-surface], [id='composer-background']"
 }
 
 // ------------------------------
@@ -145,12 +145,17 @@ const BACKGROUND_CSS = `
     --surface-primary: transparent !important;
     --surface-secondary: transparent !important;
     --surface-tertiary: transparent !important;
+    --x1qg12x5: transparent !important;
+    --xxsqvjy: transparent !important;
   }
 
   /* El contenido de React debe colocarse sobre el fondo (z-index: 1) sin taparlo */
   html.cg-customizer-background-enabled #__next,
   html.cg-customizer-background-enabled div#root,
   html.cg-customizer-background-enabled [data-testid="root"],
+  html.cg-customizer-background-enabled [data-testid="ds-document-layout"],
+  html.cg-customizer-background-enabled [data-app-shell],
+  html.cg-customizer-background-enabled #web-mobile-root,
   html.cg-customizer-background-enabled body > div,
   html.cg-customizer-background-enabled body > div > div,
   html.cg-customizer-background-enabled body > div > div > div,
@@ -165,14 +170,22 @@ const BACKGROUND_CSS = `
     background: transparent !important;
   }
 
-  html.cg-customizer-background-enabled div[class*="main-surface"],
-  html.cg-customizer-background-enabled div[class*="bg-token-main-surface"],
-  html.cg-customizer-background-enabled div[class*="bg-token-surface"],
-  html.cg-customizer-background-enabled div[class*="bg-surface-primary"],
-  html.cg-customizer-background-enabled div[class*="bg-surface-secondary"],
-  html.cg-customizer-background-enabled [class*="bg-token-bg-primary"]:not([data-composer-surface]):not([id="composer-background"]):not(form):not(form *),
-  html.cg-customizer-background-enabled [class*="bg-token-bg-secondary"]:not([data-composer-surface]):not([id="composer-background"]):not(form):not(form *),
-  html.cg-customizer-background-enabled [class*="bg-token-bg-elevated"]:not([data-composer-surface]):not([id="composer-background"]):not(form):not(form *) {
+  html.cg-customizer-background-enabled footer[data-ds-composer],
+  html.cg-customizer-background-enabled footer[data-ds-composer] > span[aria-hidden="true"],
+  html.cg-customizer-background-enabled footer:has(form, [data-composer-surface], [id="composer-background"]):not([role="dialog"] *) {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+
+  html.cg-customizer-background-enabled div[class*="main-surface"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]),
+  html.cg-customizer-background-enabled div[class*="bg-token-main-surface"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]),
+  html.cg-customizer-background-enabled div[class*="bg-token-surface"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]),
+  html.cg-customizer-background-enabled div[class*="bg-surface-primary"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]),
+  html.cg-customizer-background-enabled div[class*="bg-surface-secondary"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]),
+  html.cg-customizer-background-enabled [class*="bg-token-bg-primary"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]):not(form *),
+  html.cg-customizer-background-enabled [class*="bg-token-bg-secondary"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]):not(form *),
+  html.cg-customizer-background-enabled [class*="bg-token-bg-elevated"]:not([data-composer-surface]):not([id="composer-background"]):not([data-cg-composer-pill]):not(form *) {
     background-color: transparent !important;
   }
 
@@ -187,36 +200,60 @@ const BACKGROUND_CSS = `
 
   html.dark.cg-customizer-background-enabled nav,
   html[data-theme="dark"].cg-customizer-background-enabled nav,
+  html[data-chat-theme="dark"].cg-customizer-background-enabled nav,
+  html[data-cg-theme="dark"].cg-customizer-background-enabled nav,
   html.dark.cg-customizer-background-enabled aside,
   html[data-theme="dark"].cg-customizer-background-enabled aside,
+  html[data-chat-theme="dark"].cg-customizer-background-enabled aside,
+  html[data-cg-theme="dark"].cg-customizer-background-enabled aside,
   html.dark.cg-customizer-background-enabled [aria-label="Chat history"],
-  html[data-theme="dark"].cg-customizer-background-enabled [aria-label="Chat history"] {
+  html[data-theme="dark"].cg-customizer-background-enabled [aria-label="Chat history"],
+  html[data-chat-theme="dark"].cg-customizer-background-enabled [aria-label="Chat history"],
+  html[data-cg-theme="dark"].cg-customizer-background-enabled [aria-label="Chat history"] {
     background-color: rgba(24, 24, 24, 0.4) !important;
   }
 
-  /* Compositor: conservar fondo sólido y legible */
-  html.cg-customizer-background-enabled [data-composer-surface],
-  html.cg-customizer-background-enabled [id="composer-background"],
-  html.cg-customizer-background-enabled form:has(textarea),
-  html.cg-customizer-background-enabled form:has(#prompt-textarea),
-  html.cg-customizer-background-enabled form:has([contenteditable="true"]),
-  html.cg-customizer-background-enabled div:has(#prompt-textarea) {
+  /* Compositor: conservar fondo sólido únicamente en la superficie del input (sin pintar wrappers rectangulares) */
+  html.cg-customizer-background-enabled [data-composer-surface]:not([data-cg-composer-wrapper="true"]),
+  html.cg-customizer-background-enabled [id="composer-background"]:not([data-cg-composer-wrapper="true"]),
+  html.cg-customizer-background-enabled [data-cg-composer-pill="fallback"] {
     background-color: #ffffff !important;
   }
 
-  html.dark.cg-customizer-background-enabled [data-composer-surface],
-  html[data-theme="dark"].cg-customizer-background-enabled [data-composer-surface],
-  html.dark.cg-customizer-background-enabled [id="composer-background"],
-  html[data-theme="dark"].cg-customizer-background-enabled [id="composer-background"],
-  html.dark.cg-customizer-background-enabled form:has(textarea),
-  html[data-theme="dark"].cg-customizer-background-enabled form:has(textarea),
-  html.dark.cg-customizer-background-enabled form:has(#prompt-textarea),
-  html[data-theme="dark"].cg-customizer-background-enabled form:has(#prompt-textarea),
-  html.dark.cg-customizer-background-enabled form:has([contenteditable="true"]),
-  html[data-theme="dark"].cg-customizer-background-enabled form:has([contenteditable="true"]),
-  html.dark.cg-customizer-background-enabled div:has(#prompt-textarea),
-  html[data-theme="dark"].cg-customizer-background-enabled div:has(#prompt-textarea) {
+  html.dark.cg-customizer-background-enabled [data-composer-surface]:not([data-cg-composer-wrapper="true"]),
+  html[data-theme="dark"].cg-customizer-background-enabled [data-composer-surface]:not([data-cg-composer-wrapper="true"]),
+  html[data-chat-theme="dark"].cg-customizer-background-enabled [data-composer-surface]:not([data-cg-composer-wrapper="true"]),
+  html[data-cg-theme="dark"].cg-customizer-background-enabled [data-composer-surface]:not([data-cg-composer-wrapper="true"]),
+  html.dark.cg-customizer-background-enabled [id="composer-background"]:not([data-cg-composer-wrapper="true"]),
+  html[data-theme="dark"].cg-customizer-background-enabled [id="composer-background"]:not([data-cg-composer-wrapper="true"]),
+  html[data-chat-theme="dark"].cg-customizer-background-enabled [id="composer-background"]:not([data-cg-composer-wrapper="true"]),
+  html[data-cg-theme="dark"].cg-customizer-background-enabled [id="composer-background"]:not([data-cg-composer-wrapper="true"]),
+  html.dark.cg-customizer-background-enabled [data-cg-composer-pill="fallback"],
+  html[data-theme="dark"].cg-customizer-background-enabled [data-cg-composer-pill="fallback"],
+  html[data-chat-theme="dark"].cg-customizer-background-enabled [data-cg-composer-pill="fallback"],
+  html[data-cg-theme="dark"].cg-customizer-background-enabled [data-cg-composer-pill="fallback"] {
     background-color: #303030 !important;
+  }
+
+  /* Evitar recuadros rectangulares en <form> y envoltorios alrededor de la píldora redondeada */
+  html.cg-customizer-background-enabled form:has([data-composer-surface]):not([data-composer-surface]),
+  html.cg-customizer-background-enabled form:has([id="composer-background"]):not([id="composer-background"]),
+  html.cg-customizer-background-enabled [data-cg-composer-wrapper="true"] {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+
+  html.cg-customizer-background-enabled form[data-cg-composer-wrapper="true"] {
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+
+  html.cg-customizer-background-enabled [data-cg-composer-pseudo-bg="true"]::before,
+  html.cg-customizer-background-enabled [data-cg-composer-pseudo-bg="true"]::after {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
   }
 
   /* Dialogs, menus, popups and tooltips: solid background protection */
@@ -300,12 +337,177 @@ function ensureBackground() {
 }
 
 // ------------------------------
-// Estilos dinámicos de UI
+// Detección de tema y estilos dinámicos de UI
 // ------------------------------
+const COMPOSER_INPUT_SELECTOR = "textarea, #prompt-textarea, [contenteditable='true']"
+const COMPOSER_STOP_SELECTOR =
+  "main, [role='main'], [data-testid='ds-document-layout'], [data-app-shell], nav, aside, article, [data-testid^='conversation-turn'], [data-message-author-role], [role='dialog'], [role='menu'], [role='alertdialog'], [role='popover'], [role='tooltip']"
+const COMPOSER_SKIP_SELECTOR =
+  "[role='dialog'], [role='menu'], [role='alertdialog'], [role='popover'], [role='tooltip'], article, [data-testid^='conversation-turn'], [data-message-author-role]"
+
+function isDarkTheme(): boolean {
+  const html = document.documentElement
+  if (
+    html.classList.contains("dark") ||
+    html.getAttribute("data-theme") === "dark" ||
+    html.getAttribute("data-chat-theme") === "dark"
+  ) {
+    return true
+  }
+  if (
+    html.classList.contains("light") ||
+    html.getAttribute("data-theme") === "light" ||
+    html.getAttribute("data-chat-theme") === "light"
+  ) {
+    return false
+  }
+  try {
+    const cs = window.getComputedStyle(html).colorScheme
+    if (cs && cs.includes("dark") && !cs.includes("light")) return true
+  } catch {}
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false
+}
+
+function hasRoundedCorners(el: HTMLElement): boolean {
+  const rect = el.getBoundingClientRect()
+  if (rect.height < 32) return false
+  const cs = window.getComputedStyle(el)
+  const tl = parseFloat(cs.borderTopLeftRadius) || 0
+  const tr = parseFloat(cs.borderTopRightRadius) || 0
+  const bl = parseFloat(cs.borderBottomLeftRadius) || 0
+  const br = parseFloat(cs.borderBottomRightRadius) || 0
+  return Math.min(tl, tr, bl, br) >= 10
+}
+
+function styleHasBackground(cs: CSSStyleDeclaration): boolean {
+  const bg = cs.backgroundColor
+  const img = cs.backgroundImage
+  const hasColor = !!bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent"
+  const hasImg = !!img && img !== "none"
+  return hasColor || hasImg
+}
+
+function hasVisibleBackground(el: HTMLElement): boolean {
+  return styleHasBackground(window.getComputedStyle(el))
+}
+
+function hasPseudoBackground(el: HTMLElement): boolean {
+  for (const pseudo of ["::before", "::after"] as const) {
+    const cs = window.getComputedStyle(el, pseudo)
+    if (cs.content && cs.content !== "none" && cs.content !== "normal" && styleHasBackground(cs)) {
+      return true
+    }
+  }
+  return false
+}
+
+function syncAttributeSet(attr: string, desired: Map<HTMLElement, string>) {
+  document.querySelectorAll<HTMLElement>(`[${attr}]`).forEach((el) => {
+    if (!desired.has(el)) {
+      el.removeAttribute(attr)
+    }
+  })
+  desired.forEach((val, el) => {
+    if (el.getAttribute(attr) !== val) {
+      el.setAttribute(attr, val)
+    }
+  })
+}
+
+/**
+ * Ensures outer composer wrappers (<form>, wrapper <div>s, backdrop strips, and pseudo-elements)
+ * remain transparent while only the rounded prompt surface retains a readable solid background.
+ */
+function syncComposerStyles() {
+  const desiredWrappers = new Map<HTMLElement, string>()
+  const desiredPseudoBgs = new Map<HTMLElement, string>()
+  const desiredPills = new Map<HTMLElement, string>()
+
+  const inputs = document.querySelectorAll<HTMLElement>(COMPOSER_INPUT_SELECTOR)
+  inputs.forEach((input) => {
+    if (input.closest(COMPOSER_SKIP_SELECTOR)) return
+
+    const chain: HTMLElement[] = []
+    let cur = input.parentElement
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      if (cur.matches(COMPOSER_STOP_SELECTOR)) {
+        if (hasPseudoBackground(cur)) {
+          desiredPseudoBgs.set(cur, "true")
+        }
+        break
+      }
+      chain.push(cur)
+      cur = cur.parentElement
+    }
+
+    let boundaryIdx = -1
+    for (let i = 0; i < chain.length; i++) {
+      if (chain[i].matches("form, [data-composer-surface], [id='composer-background']")) {
+        boundaryIdx = i
+      }
+    }
+    if (boundaryIdx === -1) return
+
+    let pillIdx = -1
+    for (let i = 0; i <= boundaryIdx; i++) {
+      if (hasRoundedCorners(chain[i])) {
+        pillIdx = i
+      }
+    }
+
+    if (pillIdx === -1) {
+      for (let i = 0; i <= boundaryIdx; i++) {
+        if (chain[i].matches("[data-composer-surface], [id='composer-background']")) {
+          pillIdx = i
+        }
+      }
+    }
+
+    const pillEl = pillIdx >= 0 ? chain[pillIdx] : null
+    if (pillEl) {
+      pillEl.removeAttribute("data-cg-composer-wrapper")
+      if (pillEl.matches("[data-composer-surface], [id='composer-background']")) {
+        desiredPills.set(pillEl, "native")
+      } else {
+        const prevPillAttr = pillEl.getAttribute("data-cg-composer-pill")
+        if (prevPillAttr === "fallback") {
+          pillEl.removeAttribute("data-cg-composer-pill")
+        }
+        const needsFallback = !hasVisibleBackground(pillEl)
+        if (prevPillAttr === "fallback" && needsFallback) {
+          pillEl.setAttribute("data-cg-composer-pill", "fallback")
+        }
+        desiredPills.set(pillEl, needsFallback ? "fallback" : "native")
+      }
+    }
+
+    const wrapperStartIdx = (pillIdx >= 0 ? pillIdx : boundaryIdx) + 1
+    for (let i = wrapperStartIdx; i < chain.length; i++) {
+      const wrapper = chain[i]
+      desiredWrappers.set(wrapper, "true")
+      if (hasPseudoBackground(wrapper)) {
+        desiredPseudoBgs.set(wrapper, "true")
+      }
+      if (wrapper.tagName === "FOOTER") {
+        wrapper
+          .querySelectorAll<HTMLElement>(":scope > span[aria-hidden='true'], :scope > div[aria-hidden='true']")
+          .forEach((strip) => {
+            if (!pillEl || !strip.contains(pillEl)) {
+              desiredWrappers.set(strip, "true")
+            }
+          })
+      }
+    }
+  })
+
+  syncAttributeSet("data-cg-composer-wrapper", desiredWrappers)
+  syncAttributeSet("data-cg-composer-pseudo-bg", desiredPseudoBgs)
+  syncAttributeSet("data-cg-composer-pill", desiredPills)
+}
+
 function applyUIStyles() {
-  const isDark =
-    document.documentElement.classList.contains("dark") ||
-    document.documentElement.getAttribute("data-theme") === "dark"
+  const isDark = isDarkTheme()
+  document.documentElement.setAttribute("data-cg-theme", isDark ? "dark" : "light")
   const blurBG = isDark ? "rgba(24, 24, 24, 0.4)" : "rgba(255, 255, 255, 0.4)"
   const blurFx = "blur(12px)"
 
@@ -360,17 +562,15 @@ function applyUIStyles() {
     ;(aside.style as any).webkitBackdropFilter = blurFx
   })
 
-  // Compositor
-  const composerWrapper = document.querySelector<HTMLElement>(sel.composerWrapper)
-  if (composerWrapper) {
-    composerWrapper.style.backgroundColor = isDark ? "#303030" : "#ffffff"
-  }
+  // Compositor y envoltorios externos
+  syncComposerStyles()
 }
 
 // ------------------------------
 // Limpieza de estilos al desactivar
 // ------------------------------
 function clearUIStyles() {
+  document.documentElement.removeAttribute("data-cg-theme")
   document.documentElement.style.removeProperty("--bg-primary")
   document.documentElement.style.removeProperty("--main-surface-primary")
   document.documentElement.style.removeProperty("--bg-elevated-secondary")
@@ -399,6 +599,14 @@ function clearUIStyles() {
   } catch {}
 
   reset(sel.composerWrapper, ["backgroundColor"])
+
+  document
+    .querySelectorAll<HTMLElement>("[data-cg-composer-wrapper], [data-cg-composer-pseudo-bg], [data-cg-composer-pill]")
+    .forEach((el) => {
+      el.removeAttribute("data-cg-composer-wrapper")
+      el.removeAttribute("data-cg-composer-pseudo-bg")
+      el.removeAttribute("data-cg-composer-pill")
+    })
 }
 
 // ------------------------------
@@ -413,9 +621,7 @@ function applyBackground() {
   ensureBackground()
   if (!gradEl) return
 
-  const isDark =
-    document.documentElement.classList.contains("dark") ||
-    document.documentElement.getAttribute("data-theme") === "dark"
+  const isDark = isDarkTheme()
 
   const opacityStr = String(Math.max(0, Math.min(1, cfg.mainImageOpacity)))
   const blurStr = `blur(${Math.max(0, cfg.blurAmount)}px)`
@@ -498,11 +704,7 @@ async function render() {
 let lastThemeState = ""
 
 function checkThemeChange() {
-  const isDark =
-    document.documentElement.classList.contains("dark") ||
-    document.documentElement.getAttribute("data-theme") === "dark" ||
-    document.documentElement.getAttribute("data-chat-theme") === "dark"
-  const themeState = isDark ? "dark" : "light"
+  const themeState = isDarkTheme() ? "dark" : "light"
   if (themeState !== lastThemeState) {
     lastThemeState = themeState
     if (cfg.enabled) {
@@ -544,6 +746,8 @@ function queueProcess() {
       const existing = document.getElementById(BACKGROUND_ID)
       if (!existing || !existing.isConnected) {
         applyBackground()
+      } else {
+        syncComposerStyles()
       }
     }
   }, 250)
@@ -640,6 +844,8 @@ function queueProcess() {
       const existing = document.getElementById(BACKGROUND_ID)
       if (!existing || !existing.isConnected) {
         applyBackground()
+      } else {
+        syncComposerStyles()
       }
     }
   }, 6000)

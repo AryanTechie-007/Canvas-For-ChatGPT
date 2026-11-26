@@ -466,7 +466,101 @@ server.listen(0, async () => {
       return res;
     });
 
-    // 9. Manifest V3 version specification compliance (Chromium 1-4 dot-separated integer constraint)
+    // 9. Outer rectangular form/wrapper transparency around rounded composer pill
+    await assertTest("Outer rectangular form and div wrappers around rounded prompt pill stay transparent", async () => {
+      const res = await evaluate(`(async () => {
+        const main = document.querySelector('main');
+        const host = document.createElement('div');
+        host.id = 'modern-composer-host';
+        host.innerHTML = \`
+          <div class="composer-outer-rect" style="background: rgb(20, 20, 20);">
+            <form class="composer-form-rect">
+              <div class="composer-inner-rect">
+                <div class="composer-pill-rounded" data-composer-surface style="border-radius: 28px; min-height: 52px;">
+                  <div id="prompt-textarea" contenteditable="true">Ask ChatGPT</div>
+                </div>
+              </div>
+            </form>
+          </div>
+          <div class="composer-outer-no-attr" style="background: rgb(20, 20, 20);">
+            <form class="composer-form-no-attr">
+              <div class="composer-pill-no-attr" style="border-radius: 28px; min-height: 52px;">
+                <textarea placeholder="Ask ChatGPT"></textarea>
+              </div>
+            </form>
+          </div>
+        \`;
+        main.appendChild(host);
+        await new Promise(r => setTimeout(r, 350));
+
+        const outerRectBg = window.getComputedStyle(host.querySelector('.composer-outer-rect')).backgroundColor;
+        const formRectBg = window.getComputedStyle(host.querySelector('.composer-form-rect')).backgroundColor;
+        const innerRectBg = window.getComputedStyle(host.querySelector('.composer-inner-rect')).backgroundColor;
+        const pillBg = window.getComputedStyle(host.querySelector('.composer-pill-rounded')).backgroundColor;
+
+        const outerNoAttrBg = window.getComputedStyle(host.querySelector('.composer-outer-no-attr')).backgroundColor;
+        const formNoAttrBg = window.getComputedStyle(host.querySelector('.composer-form-no-attr')).backgroundColor;
+        const pillNoAttrBg = window.getComputedStyle(host.querySelector('.composer-pill-no-attr')).backgroundColor;
+
+        host.remove();
+        await new Promise(r => setTimeout(r, 300));
+
+        const wrappersTransparent =
+          outerRectBg === 'rgba(0, 0, 0, 0)' &&
+          formRectBg === 'rgba(0, 0, 0, 0)' &&
+          innerRectBg === 'rgba(0, 0, 0, 0)' &&
+          outerNoAttrBg === 'rgba(0, 0, 0, 0)' &&
+          formNoAttrBg === 'rgba(0, 0, 0, 0)';
+        const pillsSolid =
+          pillBg !== 'rgba(0, 0, 0, 0)' && pillBg !== 'transparent' &&
+          pillNoAttrBg !== 'rgba(0, 0, 0, 0)' && pillNoAttrBg !== 'transparent';
+
+        return {
+          pass: wrappersTransparent && pillsSolid,
+          info: 'formBg=' + formRectBg + ', innerRectBg=' + innerRectBg + ', pillBg=' + pillBg + ', pillNoAttrBg=' + pillNoAttrBg
+        };
+      })()`);
+      return res;
+    });
+
+    // 10. Footer backdrop strips and ::before backdrops stay transparent behind rounded form pill
+    await assertTest("Footer backdrop strips and ::before layers stay transparent behind rounded form", async () => {
+      const res = await evaluate(`(async () => {
+        const styleEl = document.createElement('style');
+        styleEl.id = 'test-pseudo-backdrop-style';
+        styleEl.textContent = '.test-pseudo-wrapper::before { content: ""; position: absolute; inset: 0; background-color: rgb(0, 0, 0); z-index: -1; }';
+        document.head.appendChild(styleEl);
+
+        const footer = document.createElement('footer');
+        footer.setAttribute('data-ds-composer', '');
+        footer.innerHTML = \`
+          <span aria-hidden="true" class="test-strip" style="position: absolute; inset-inline: 0; bottom: 0; height: 24px; background: rgb(0, 0, 0);"></span>
+          <div class="test-pseudo-wrapper" style="position: relative;">
+            <form class="test-rounded-form" style="border-radius: 28px; min-height: 52px; background: rgb(33, 33, 33);">
+              <textarea placeholder="Ask ChatGPT"></textarea>
+            </form>
+          </div>
+        \`;
+        document.body.appendChild(footer);
+        await new Promise(r => setTimeout(r, 350));
+
+        const stripBg = window.getComputedStyle(footer.querySelector('.test-strip')).backgroundColor;
+        const pseudoBg = window.getComputedStyle(footer.querySelector('.test-pseudo-wrapper'), '::before').backgroundColor;
+        const formBg = window.getComputedStyle(footer.querySelector('.test-rounded-form')).backgroundColor;
+
+        footer.remove();
+        styleEl.remove();
+        await new Promise(r => setTimeout(r, 300));
+
+        return {
+          pass: stripBg === 'rgba(0, 0, 0, 0)' && pseudoBg === 'rgba(0, 0, 0, 0)' && formBg === 'rgb(33, 33, 33)',
+          info: 'stripBg=' + stripBg + ', pseudoBg=' + pseudoBg + ', formBg=' + formBg
+        };
+      })()`);
+      return res;
+    });
+
+    // 11. Manifest V3 version specification compliance (Chromium 1-4 dot-separated integer constraint)
     await assertTest("Manifest V3 version specification strictly complies with Chromium integer constraints", async () => {
       const manifestPath = path.join(extensionBuildDir, 'manifest.json');
       if (!fs.existsSync(manifestPath)) {
