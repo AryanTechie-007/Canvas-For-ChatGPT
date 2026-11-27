@@ -42,7 +42,8 @@ export function resolveChatKeyFromUrl(urlOrPath: string): ResolvedChatRoute {
     };
   }
 
-  const shareMatch = pathname.match(/^\/share\/([^/?#]+)(?:\/.*)?$/);
+  // Match /share/<id> and /share/e/<id>
+  const shareMatch = pathname.match(/^\/share\/(?:e\/)?([^/?#]+)(?:\/.*)?$/);
   if (shareMatch?.[1]) {
     const id = decodeURIComponent(shareMatch[1]);
     return {
@@ -53,9 +54,21 @@ export function resolveChatKeyFromUrl(urlOrPath: string): ResolvedChatRoute {
     };
   }
 
-  const gptMatch = pathname.match(/^\/g\/([^/?#]+)(?:\/project)?\/?$/);
+  // Match /g/<gpt-id> and /g/<gpt-id>/project (or subpaths without /c/)
+  const gptMatch = pathname.match(/^\/g\/([^/?#]+)(?:\/.*)?$/);
   if (gptMatch?.[1]) {
     const id = decodeURIComponent(gptMatch[1]);
+    return {
+      chatKey: `g:${id}`,
+      routeType: "gpt",
+      id,
+      pathname
+    };
+  }
+
+  const projectMatch = pathname.match(/^\/projects?\/([^/?#]+)(?:\/.*)?$/);
+  if (projectMatch?.[1]) {
+    const id = decodeURIComponent(projectMatch[1]);
     return {
       chatKey: `g:${id}`,
       routeType: "gpt",

@@ -1,7 +1,7 @@
 {
   "name": "canvas-for-chatgpt",
   "displayName": "Canvas for ChatGPT",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Transform ChatGPT into your personal canvas with zero-lag rendering, per-chat wallpapers, bundled presets, local media uploads, custom URLs, and real-time visual controls.",
   "author": "AryanTechie-007",
   "homepage": "https://github.com/AryanTechie-007/Canvas-For-ChatGPT",
@@ -38,10 +38,11 @@
     "typescript": "5.3.3"
   },
   "manifest": {
-    "version_name": "v3.1",
+    "version_name": "v3.2",
     "permissions": [
       "storage",
-      "unlimitedStorage"
+      "unlimitedStorage",
+      "activeTab"
     ],
     "host_permissions": [
       "https://chatgpt.com/*",

@@ -50,26 +50,34 @@ function queryActiveTab(): Promise<chrome.tabs.Tab | null> {
       return;
     }
     const checkTabs = (selfTab?: chrome.tabs.Tab) => {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const current = tabs?.[0] ?? null;
-        if (selfTab && current && current.id === selfTab.id) {
-          // Opened directly as a tab (e.g., debugging or browser tests): target most recent ChatGPT tab
-          chrome.tabs.query(
-            { url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] },
-            (chatTabs) => {
-              const sorted = [...(chatTabs || [])].sort(
-                (a, b) =>
-                  ((b as chrome.tabs.Tab & { lastAccessed?: number })
-                    .lastAccessed ?? 0) -
-                  ((a as chrome.tabs.Tab & { lastAccessed?: number })
-                    .lastAccessed ?? 0)
-              );
-              resolve(sorted[0] ?? current);
-            }
-          );
-          return;
+      chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+        const pickTab = (list: chrome.tabs.Tab[] | undefined) => {
+          const current = list?.[0] ?? null;
+          if (selfTab && current && current.id === selfTab.id) {
+            // Opened directly as a tab (e.g., debugging or browser tests): target most recent ChatGPT tab
+            chrome.tabs.query(
+              { url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] },
+              (chatTabs) => {
+                const sorted = [...(chatTabs || [])].sort(
+                  (a, b) =>
+                    ((b as chrome.tabs.Tab & { lastAccessed?: number })
+                      .lastAccessed ?? 0) -
+                    ((a as chrome.tabs.Tab & { lastAccessed?: number })
+                      .lastAccessed ?? 0)
+                );
+                resolve(sorted[0] ?? current);
+              }
+            );
+            return;
+          }
+          resolve(current);
+        };
+
+        if (tabs && tabs.length > 0) {
+          pickTab(tabs);
+        } else {
+          chrome.tabs.query({ active: true, currentWindow: true }, pickTab);
         }
-        resolve(current);
       });
     };
 
@@ -138,36 +146,75 @@ export default function IndexPopup() {
         setActiveTabId(tab.id);
         activeTabIdRef.current = tab.id;
         try {
-          const ctxRes = await sendTabMessage<GetChatContextResponse>(tab.id, {
+          const ctxRes = await sendTabMessage<
+            GetChatContextResponse & { chatTitle?: string }
+          >(tab.id, {
             type: "GET_CHAT_CONTEXT"
           });
-          const cfgRes = await sendTabMessage<GetConfigResponse>(tab.id, {
-            type: "GET_CFG"
-          });
+          try {
+            const cfgRes = await sendTabMessage<
+              GetConfigResponse | CanvasConfig
+            >(tab.id, {
+              type: "GET_CFG"
+            });
+            if (!mounted) return;
+            if (cfgRes && "ok" in cfgRes && cfgRes.ok && cfgRes.cfg) {
+              setCfg(cfgRes.cfg);
+            } else if (
+              cfgRes &&
+              "backgroundImageUrl" in cfgRes &&
+              typeof cfgRes.backgroundImageUrl === "string"
+            ) {
+              setCfg(mergeConfigPartial(DEFAULT_CONFIG, cfgRes));
+            }
+          } catch {
+            // Keep initial config from storage if GET_CFG fails
+          }
+
           if (!mounted) return;
 
-          if (cfgRes?.ok && cfgRes.cfg) {
-            setCfg(cfgRes.cfg);
-          }
-          if (ctxRes?.ok) {
+          if (
+            ctxRes &&
+            (ctxRes.ok || typeof ctxRes.chatKey !== "undefined")
+          ) {
+            const tabUrl =
+              ctxRes.url ||
+              tab.url ||
+              (tab as chrome.tabs.Tab & { pendingUrl?: string }).pendingUrl ||
+              "";
+            const routeFallback = resolveChatKeyFromUrl(tabUrl);
+            const resolvedChatKey = ctxRes.chatKey ?? routeFallback.chatKey;
             const ctx: ChatContext = ctxRes.context ?? {
-              url: ctxRes.url,
-              pathname: ctxRes.pathname,
-              chatKey: ctxRes.chatKey,
-              title: ctxRes.title,
-              routeType: ctxRes.routeType,
-              theme: ctxRes.theme
+              url: tabUrl,
+              pathname: ctxRes.pathname ?? routeFallback.pathname,
+              chatKey: resolvedChatKey,
+              title:
+                ctxRes.title ??
+                ctxRes.chatTitle ??
+                (tab.title
+                  ?.replace(
+                    /^(?:ChatGPT\s*[-|–—]\s*)|(?:\s*[-|–—]\s*ChatGPT\s*$)/gi,
+                    ""
+                  )
+                  .trim() ||
+                  null),
+              routeType: ctxRes.routeType ?? routeFallback.routeType,
+              theme: ctxRes.theme ?? "dark"
             };
             setChatContext(ctx);
             setScope(ctx.chatKey ? "chat" : "global");
             return;
           }
         } catch {
-          // Active tab may not be chatgpt.com or content script is not injected
+          // Active tab may not be chatgpt.com or content script is not injected yet
         }
       }
 
-      const url = tab?.url || "";
+      const url =
+        tab?.url ||
+        (tab as (chrome.tabs.Tab & { pendingUrl?: string }) | null)
+          ?.pendingUrl ||
+        "";
       const fallbackRoute = resolveChatKeyFromUrl(url);
       if (fallbackRoute.chatKey) {
         setChatContext({
@@ -186,12 +233,60 @@ export default function IndexPopup() {
         });
         setScope("chat");
       } else {
-        setChatContext(null);
+        setChatContext(
+          url
+            ? {
+                url,
+                pathname: fallbackRoute.pathname,
+                chatKey: null,
+                title: null,
+                routeType: "default",
+                theme: "dark"
+              }
+            : null
+        );
         setScope("global");
       }
     }
 
     void init();
+
+    const handleTabUpdated = (
+      updatedTabId: number,
+      changeInfo: chrome.tabs.TabChangeInfo,
+      updatedTab: chrome.tabs.Tab
+    ) => {
+      if (!mounted || updatedTabId !== activeTabIdRef.current) return;
+      if (!changeInfo.url && !changeInfo.title) return;
+      const nextUrl = changeInfo.url || updatedTab.url || "";
+      if (!nextUrl) return;
+      const nextRoute = resolveChatKeyFromUrl(nextUrl);
+      setChatContext((prev) => ({
+        url: nextUrl,
+        pathname: nextRoute.pathname,
+        chatKey: nextRoute.chatKey,
+        title:
+          updatedTab.title
+            ?.replace(
+              /^(?:ChatGPT\s*[-|–—]\s*)|(?:\s*[-|–—]\s*ChatGPT\s*$)/gi,
+              ""
+            )
+            .trim() ||
+          prev?.title ||
+          null,
+        routeType: nextRoute.routeType,
+        theme: prev?.theme ?? "dark"
+      }));
+      if (nextRoute.chatKey) {
+        setScope("chat");
+      }
+    };
+
+    try {
+      chrome.tabs?.onUpdated?.addListener(handleTabUpdated);
+    } catch {
+      // Ignore outside extension tab APIs
+    }
 
     const unwatch = watchConfig((nextCfg) => {
       if (mounted && !isFlushingRef.current && !pendingPartialRef.current) {
@@ -202,12 +297,16 @@ export default function IndexPopup() {
     return () => {
       mounted = false;
       unwatch();
+      try {
+        chrome.tabs?.onUpdated?.removeListener(handleTabUpdated);
+      } catch {
+        // Ignore cleanup errors
+      }
     };
   }, []);
 
   const currentChatKey = chatContext?.chatKey ?? null;
-  const effectiveScope: ScopeMode =
-    scope === "chat" && currentChatKey ? "chat" : "global";
+  const effectiveScope: ScopeMode = scope;
 
   const activeVisuals = useMemo(() => {
     if (effectiveScope === "chat" && currentChatKey) {
@@ -330,6 +429,11 @@ export default function IndexPopup() {
         backgroundImageUrl: url,
         savedBackgrounds: nextSaved
       });
+      if (effectiveScope === "chat" && !currentChatKey) {
+        setStatusMsg({
+          text: "Home (/) uses Global Default — open a chat (/c/...) to save per-chat."
+        });
+      }
     }
   }
 
@@ -503,7 +607,6 @@ export default function IndexPopup() {
           aria-selected={effectiveScope === "chat"}
           data-testid="scope-tab-chat"
           className={`scope-tab ${effectiveScope === "chat" ? "active" : ""}`}
-          disabled={!currentChatKey}
           onClick={() => setScope("chat")}>
           This Chat
         </button>
@@ -525,8 +628,10 @@ export default function IndexPopup() {
               Target:{" "}
               <strong>{chatContext?.title || currentChatKey}</strong>
             </>
+          ) : effectiveScope === "chat" ? (
+            "Home (/) has no chat ID yet — open a chat (/c/...) to pin one"
           ) : (
-            "Editing Global Default (open a ChatGPT chat to customize per-chat)"
+            "Editing Global Default (applies to Home / and uncustomized chats)"
           )}
         </span>
         <span
@@ -534,9 +639,11 @@ export default function IndexPopup() {
             effectiveScope === "chat" && currentChatHasOverride ? "custom" : ""
           }`}>
           {effectiveScope === "chat"
-            ? currentChatHasOverride
-              ? "Custom Chat"
-              : "Using Default"
+            ? currentChatKey
+              ? currentChatHasOverride
+                ? "Custom Chat"
+                : "Using Default"
+              : "Home (/)"
             : "Global"}
         </span>
       </div>
@@ -545,7 +652,9 @@ export default function IndexPopup() {
         <div className="section-header">
           <h2 className="section-title">Backdrop Picker</h2>
           <span className="section-hint">
-            {effectiveScope === "chat" ? "Applies to this chat" : "Global fallback"}
+            {effectiveScope === "chat" && currentChatKey
+              ? "Applies to this chat"
+              : "Global fallback"}
           </span>
         </div>
 

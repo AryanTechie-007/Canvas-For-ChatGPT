@@ -265,7 +265,7 @@ function verifyManifestV3Build() {
   assert.equal(manifest.manifest_version, 3, "manifest_version must be 3");
   assert.equal(manifest.name, "Canvas for ChatGPT");
   assert.equal(manifest.version, pkg.version);
-  assert.equal(manifest.version_name, "v3.1");
+  assert.equal(manifest.version_name, "v3.2");
 
   // Chromium integer version parts check (1-4 dot-separated integers 0-65535)
   const versionParts = String(manifest.version || "").split(".");
@@ -285,6 +285,10 @@ function verifyManifestV3Build() {
   assert.ok(
     manifest.permissions.includes("unlimitedStorage"),
     "Missing unlimitedStorage permission"
+  );
+  assert.ok(
+    manifest.permissions.includes("activeTab"),
+    "Missing activeTab permission"
   );
   assert.ok(
     manifest.host_permissions.includes("https://chatgpt.com/*"),
@@ -964,11 +968,13 @@ async function runTests() {
     assert.equal(switchedToBeta.opacity, "0.72");
     assert.equal(switchedToBeta.filter, "none");
 
-    // Verify /g/:gpt/c/:chat, /g/:gpt, /share/:id, / routes via GET_CHAT_CONTEXT
+    // Verify /g/:gpt/c/:chat, /g/:gpt, /g/:gpt/project, /share/:id, /share/e/:id, / routes via GET_CHAT_CONTEXT
     for (const [routePath, expectedKey] of [
       ["/g/g-demo/c/chat-nested", "c:chat-nested"],
       ["/g/g-demo", "g:g-demo"],
+      ["/g/g-demo/project", "g:g-demo"],
       ["/share/share-9", "share:share-9"],
+      ["/share/e/share-embed", "share:share-embed"],
       ["/", null]
     ]) {
       await cdp.evalInSession(
@@ -989,6 +995,45 @@ async function runTests() {
         `Expected chatKey ${expectedKey} for ${routePath}`
       );
     }
+
+    // Verify "This Chat" tab remains selectable even on "/" (no disabled lock)
+    await cdp.evalInSession(popupSession, `location.reload()`);
+    const thisChatSelectableOnHome = await waitFor(
+      async () =>
+        cdp.evalInSession(
+          popupSession,
+          `(() => {
+            const tabChat = document.querySelector('[data-testid="scope-tab-chat"]');
+            const tabGlobal = document.querySelector('[data-testid="scope-tab-global"]');
+            if (!tabChat || !tabGlobal) return null;
+            if (tabGlobal.getAttribute("aria-selected") !== "true") return null;
+            return { disabled: tabChat.disabled };
+          })()`
+        ),
+      6000,
+      100,
+      "popup reload on home route"
+    );
+    assert.equal(thisChatSelectableOnHome.disabled, false, "This Chat tab must never be disabled");
+    await cdp.evalInSession(
+      popupSession,
+      `document.querySelector('[data-testid="scope-tab-chat"]').click()`
+    );
+    const chatTabSelectedOnHome = await waitFor(
+      async () =>
+        cdp.evalInSession(
+          popupSession,
+          `document.querySelector('[data-testid="scope-tab-chat"]')?.getAttribute("aria-selected") === "true"`
+        ),
+      4000,
+      100,
+      "This Chat selection on home route"
+    );
+    assert.equal(chatTabSelectedOnHome, true);
+    await cdp.evalInSession(
+      popupSession,
+      `document.querySelector('[data-testid="scope-tab-global"]').click()`
+    );
 
     // Navigate back to chat-alpha and verify custom video wallpaper restores
     await cdp.evalInSession(

@@ -10,7 +10,7 @@ Transform [ChatGPT](https://chatgpt.com/) into a calm, ultra-responsive workspac
 
 ## Features
 
-- **Zero-Lag CSS-First Engine (`v3.0`)**: Rebuilt from the ground up modeled after [Canvas for Claude](https://github.com/AryanTechie-007/Canvas-for-Claude). Eliminates `getComputedStyle` and `getBoundingClientRect` DOM walks, attribute-thrashing observers, and heavy `:has()` layout scans during ChatGPT streaming and typing.
+- **Zero-Lag CSS-First Engine (`v3.2`)**: Rebuilt with a streamlined pure-CSS rendering pipeline that eliminates `getComputedStyle` and `getBoundingClientRect` DOM walks, attribute-thrashing observers, and heavy `:has()` layout scans during ChatGPT streaming and typing.
 - **Per-Chat & Route-Aware Wallpapers**: Assign unique wallpapers and visual tuning to individual conversations (`/c/<id>`, `/g/<gpt-id>/c/<id>`), Custom GPTs (`/g/<gpt-id>`), and shared links (`/share/<id>`), or fall back to a **Global Default** on Home (`/`) and uncustomized chats.
 - **Bundled Offline Presets**: Four built-in client-side wallpapers ready instantaneously with zero network delay — *Twilight Peaks*, *Cosmic Nebula*, *Misty Pines*, and *Northern Aurora (Animated GIF)*.
 - **Local Media Uploads**: Upload static images, animated GIFs, or looping videos (`MP4`, `WEBM`, `OGG`, `MOV`) directly from your computer. Files are converted locally to data URLs and persisted in extension storage.
@@ -41,7 +41,7 @@ Transform [ChatGPT](https://chatgpt.com/) into a calm, ultra-responsive workspac
 
 ## Browser Installation Guide
 
-Download the latest **`canvas-for-chatgpt-v3.1.zip`** from [GitHub Releases](https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases) and **extract the ZIP** into a permanent folder on your computer (for example, `Documents/Canvas-For-ChatGPT`).
+Download the latest **`canvas-for-chatgpt-v3.2.zip`** from [GitHub Releases](https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases) and **extract the ZIP** into a permanent folder on your computer (for example, `Documents/Canvas-For-ChatGPT`).
 
 > **Note:** Do not delete the extracted folder after installing—your browser loads the extension from that folder. If you build from source, run `npm install && npm run build` first and select `build/chrome-mv3-prod`.
 
