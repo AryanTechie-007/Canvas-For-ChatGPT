@@ -1,483 +1,929 @@
-const http = require('http');
-const { spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+#!/usr/bin/env node
+/**
+ * End-to-end Chromium Manifest V3, CDP & zero-lag streaming verification suite
+ * for Canvas for ChatGPT v3.0.
+ */
 
-const candidateBrowsers = [
-  process.env.BROWSER_PATH,
-  process.env.CHROME_BIN,
-  "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
-  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-  "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"
-].filter(Boolean);
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { spawn } = require("node:child_process");
 
-const bravePath = candidateBrowsers.find(p => fs.existsSync(p));
-if (!bravePath) {
-  console.error("Could not find a Chromium-based browser (Brave, Chrome, or Edge). Set BROWSER_PATH.");
-  process.exit(1);
-}
-const extensionBuildDir = path.resolve(__dirname, '..', 'build', 'chrome-mv3-prod');
-if (!fs.existsSync(extensionBuildDir)) {
-  console.error("Extension build directory does not exist. Run 'npm run build' first.");
-  process.exit(1);
-}
+const ROOT_DIR = path.resolve(__dirname, "..");
+const DIST_DIR = path.join(ROOT_DIR, "build", "chrome-mv3-prod");
 
-const buildFiles = fs.readdirSync(extensionBuildDir);
-const contentJsFile = buildFiles.find(f => f.startsWith('content.') && f.endsWith('.js'));
-if (!contentJsFile) {
-  console.error("Could not find built content script in", extensionBuildDir);
-  process.exit(1);
-}
-const contentJsCode = fs.readFileSync(path.join(extensionBuildDir, contentJsFile), 'utf8');
+function findChromeBinary() {
+  const envPaths = [
+    process.env.CHROME_PATH,
+    process.env.BROWSER_PATH,
+    process.env.CHROME_BIN
+  ].filter(Boolean);
+  for (const p of envPaths) {
+    if (fs.existsSync(p)) return p;
+  }
 
-const MOCK_CHROME_JS = `
-  window._storageData = {};
-  window.chrome = window.chrome || {};
-  const storageImpl = {
-    get: (key, cb) => {
-      const val = typeof key === 'string' ? { [key]: window._storageData[key] } : window._storageData;
-      if (typeof cb === 'function') cb(val);
-      return Promise.resolve(val);
-    },
-    set: (obj, cb) => {
-      Object.assign(window._storageData, obj);
-      if (typeof cb === 'function') cb();
-      return Promise.resolve();
-    },
-    remove: (key, cb) => {
-      delete window._storageData[key];
-      if (typeof cb === 'function') cb();
-      return Promise.resolve();
+  const candidates = [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    path.join(
+      process.env.LOCALAPPDATA || "",
+      "Google\\Chrome\\Application\\chrome.exe"
+    ),
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser"
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
     }
-  };
-  window.chrome.storage = {
-    local: storageImpl,
-    sync: storageImpl
-  };
-  window.chrome.runtime = {
-    onMessage: {
-      listeners: [],
-      addListener: (fn) => window.chrome.runtime.onMessage.listeners.push(fn)
-    },
-    sendMessage: (msg) => {
-      let res;
-      for (const l of window.chrome.runtime.onMessage.listeners) {
-        l(msg, {}, (r) => { res = r; });
+  }
+
+  throw new Error(
+    "Could not locate a Chromium/Chrome/Edge/Brave binary. Set CHROME_PATH environment variable."
+  );
+}
+
+class CDPClient {
+  constructor(wsUrl) {
+    this.ws = new WebSocket(wsUrl);
+    this.nextId = 1;
+    this.pending = new Map();
+    this.eventHandlers = new Map();
+  }
+
+  async connect() {
+    await new Promise((resolve, reject) => {
+      this.ws.addEventListener("open", resolve, { once: true });
+      this.ws.addEventListener("error", reject, { once: true });
+    });
+
+    this.ws.addEventListener("message", (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.id !== undefined) {
+        const entry = this.pending.get(msg.id);
+        if (entry) {
+          this.pending.delete(msg.id);
+          if (msg.error) {
+            entry.reject(
+              new Error(
+                `${entry.method}: ${msg.error.message || JSON.stringify(msg.error)}`
+              )
+            );
+          } else {
+            entry.resolve(msg.result);
+          }
+        }
+        return;
       }
-      return Promise.resolve(res);
-    }
-  };
-`;
 
-const HTML_PAGE = `<!DOCTYPE html>
-<html class="chatgpt-theme" data-theme="dark">
+      if (msg.method) {
+        const key = `${msg.sessionId || ""}:${msg.method}`;
+        const list = this.eventHandlers.get(key) || [];
+        for (const fn of list) {
+          fn(msg.params, msg.sessionId);
+        }
+        const globalList = this.eventHandlers.get(`*:${msg.method}`) || [];
+        for (const fn of globalList) {
+          fn(msg.params, msg.sessionId);
+        }
+      }
+    });
+  }
+
+  send(method, params = {}, sessionId = undefined) {
+    const id = this.nextId++;
+    const payload = { id, method, params };
+    if (sessionId) payload.sessionId = sessionId;
+
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject, method });
+      this.ws.send(JSON.stringify(payload));
+    });
+  }
+
+  on(method, handler, sessionId = "*") {
+    const key = `${sessionId}:${method}`;
+    const list = this.eventHandlers.get(key) || [];
+    list.push(handler);
+    this.eventHandlers.set(key, list);
+  }
+
+  async evalInSession(sessionId, expression) {
+    const res = await this.send(
+      "Runtime.evaluate",
+      {
+        expression,
+        awaitPromise: true,
+        returnByValue: true
+      },
+      sessionId
+    );
+    if (res.exceptionDetails) {
+      const desc =
+        res.exceptionDetails.exception?.description ||
+        res.exceptionDetails.text ||
+        "Runtime.evaluate exception";
+      throw new Error(desc);
+    }
+    return res.result?.value;
+  }
+
+  close() {
+    try {
+      this.ws.close();
+    } catch {
+      // Ignore close errors
+    }
+  }
+}
+
+async function waitFor(
+  fn,
+  timeoutMs = 8000,
+  intervalMs = 100,
+  label = "condition"
+) {
+  const start = Date.now();
+  let lastVal;
+  while (Date.now() - start < timeoutMs) {
+    lastVal = await fn();
+    if (lastVal) return lastVal;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(
+    `Timed out after ${timeoutMs}ms waiting for ${label} (last=${JSON.stringify(lastVal)})`
+  );
+}
+
+function buildMockChatGptHtml(
+  initialPath = "/c/chat-alpha",
+  title = "Alpha Architecture Discussion - ChatGPT"
+) {
+  return `<!doctype html>
+<html lang="en" class="dark" data-theme="dark">
 <head>
-  <meta charset="utf-8">
-  <title>ChatGPT Simulation</title>
+  <meta charset="utf-8" />
+  <title>${title}</title>
   <style>
     :root {
       --bg-primary: #212121;
       --main-surface-primary: #212121;
-      --color-background-panel: #171717;
+      --sidebar-surface-primary: #171717;
     }
-    body {
+    html, body {
       margin: 0;
-      background: var(--bg-primary);
+      padding: 0;
+      background-color: rgb(33, 33, 33);
       color: #ececec;
-      font-family: sans-serif;
+      font-family: system-ui, sans-serif;
     }
-    #root {
+    #__next {
       display: flex;
-      height: 100vh;
+      min-height: 100vh;
       width: 100vw;
+      background-color: rgb(33, 33, 33);
     }
-    nav {
+    #stage-slideover-sidebar {
       width: 260px;
-      background: #171717;
-      padding: 10px;
+      background-color: rgb(23, 23, 23);
     }
     main {
       flex: 1;
+      min-height: 100vh;
       display: flex;
       flex-direction: column;
-      position: relative;
+      justify-content: space-between;
+      padding: 24px;
+      background-color: rgb(33, 33, 33);
     }
-    .conversation-thread {
-      flex: 1;
-      overflow-y: auto;
-      padding: 20px;
+    [role="dialog"] {
+      background-color: rgb(42, 42, 46);
+      padding: 16px;
+      border-radius: 12px;
     }
-    .composer {
-      padding: 20px;
-      background: #303030;
+    [data-composer-surface] {
+      background-color: rgb(48, 48, 48);
+      border-radius: 26px;
+      padding: 12px 16px;
     }
   </style>
-  <script src="/mock-chrome.js"></script>
 </head>
 <body class="dark">
-  <div id="root">
-    <nav aria-label="Chat history">
-      <div>Chat list header</div>
-      <div>Chat item 1</div>
-      <div>Chat footer</div>
-    </nav>
-    <main role="main">
-      <header id="page-header">Model selector</header>
-      <div class="conversation-thread">
-        <div class="turn user-turn" id="turn-1">
-          <div class="user-bubble">Hello ChatGPT!</div>
-        </div>
-        <div class="turn assistant-turn" id="turn-2">
-          <div class="Markdown"><p>Hello! How can I help you today?</p></div>
-        </div>
-      </div>
-      <div class="composer" data-composer-surface>
+  <div id="__next" class="bg-token-main-surface-primary">
+    <aside id="stage-slideover-sidebar">
+      <nav aria-label="Chat history">
+        <a href="/c/chat-alpha" aria-current="${initialPath === "/c/chat-alpha" ? "page" : "false"}">Alpha Architecture Discussion</a>
+        <a href="/c/chat-beta" aria-current="${initialPath === "/c/chat-beta" ? "page" : "false"}">Beta Shader Notes</a>
+        <a href="/g/g-demo">Custom GPT Helper</a>
+        <a href="/share/share-9">Shared Snippet</a>
+      </nav>
+    </aside>
+    <main role="main" class="bg-token-bg-primary">
+      <header data-testid="page-header" class="bg-token-bg-primary">ChatGPT</header>
+      <section id="thread">
+        <article data-message-author-role="user">
+          <div>Design a lag-free workspace.</div>
+        </article>
+        <article data-message-author-role="assistant">
+          <div class="markdown"><p>Here is your zero-lag customizable canvas.</p></div>
+        </article>
+      </section>
+      <div role="dialog" aria-label="Settings modal">Modal Content</div>
+      <footer data-ds-composer>
         <form>
-          <textarea placeholder="Message ChatGPT..."></textarea>
+          <div data-composer-surface>
+            <div id="prompt-textarea" contenteditable="true">Message ChatGPT...</div>
+          </div>
         </form>
-      </div>
+      </footer>
     </main>
   </div>
-  <script src="/content.js"></script>
 </body>
 </html>`;
-
-const server = http.createServer((req, res) => {
-  if (req.url === '/' || req.url.startsWith('/chat')) {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(HTML_PAGE);
-  } else if (req.url === '/mock-chrome.js') {
-    res.writeHead(200, { 'Content-Type': 'application/javascript' });
-    res.end(MOCK_CHROME_JS);
-  } else if (req.url === '/content.js') {
-    res.writeHead(200, { 'Content-Type': 'application/javascript' });
-    res.end(contentJsCode);
-  } else {
-    res.writeHead(404);
-    res.end();
-  }
-});
-
-async function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
 }
 
-server.listen(0, async () => {
-  const PORT = server.address().port;
-  console.log(`Test server running at http://127.0.0.1:${PORT}`);
+function verifyManifestV3Build() {
+  console.log("[1/10] Verifying Manifest V3 build output...");
+  const manifestPath = path.join(DIST_DIR, "manifest.json");
+  assert.ok(
+    fs.existsSync(manifestPath),
+    `Missing built manifest at ${manifestPath}`
+  );
 
-  const tempProfile = path.resolve(`C:\\Users\\vaan2\\AppData\\Local\\Temp\\brave-audit-profile-${Date.now()}`);
-  const remotePort = 9200 + Math.floor(Math.random() * 500);
-  const proc = spawn(bravePath, [
-    '--headless=new',
-    `--remote-debugging-port=${remotePort}`,
-    `--user-data-dir=${tempProfile}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-    `http://127.0.0.1:${PORT}/`
-  ], { stdio: 'ignore' });
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(ROOT_DIR, "package.json"), "utf8")
+  );
+
+  assert.equal(manifest.manifest_version, 3, "manifest_version must be 3");
+  assert.equal(manifest.name, "Canvas for ChatGPT");
+  assert.equal(manifest.version, pkg.version);
+  assert.equal(manifest.version_name, "v3.0");
+
+  // Chromium integer version parts check (1-4 dot-separated integers 0-65535)
+  const versionParts = String(manifest.version || "").split(".");
+  assert.ok(
+    versionParts.length >= 1 &&
+      versionParts.length <= 4 &&
+      versionParts.every(
+        (p) => /^\d+$/.test(p) && Number(p) >= 0 && Number(p) <= 65535
+      ),
+    `Invalid Chromium manifest version: ${manifest.version}`
+  );
+
+  assert.ok(
+    manifest.permissions.includes("storage"),
+    "Missing storage permission"
+  );
+  assert.ok(
+    manifest.permissions.includes("unlimitedStorage"),
+    "Missing unlimitedStorage permission"
+  );
+  assert.ok(
+    manifest.host_permissions.includes("https://chatgpt.com/*"),
+    "Missing https://chatgpt.com/* host permission"
+  );
+  assert.ok(
+    manifest.host_permissions.includes("https://chat.openai.com/*"),
+    "Missing https://chat.openai.com/* host permission"
+  );
+
+  const cs = (manifest.content_scripts || []).find(
+    (entry) =>
+      (entry.matches || []).includes("https://chatgpt.com/*") &&
+      (entry.matches || []).includes("https://chat.openai.com/*")
+  );
+  assert.ok(cs, "Missing content_scripts entry for ChatGPT hosts");
+  assert.equal(cs.run_at, "document_idle");
+  for (const jsFile of cs.js || []) {
+    assert.ok(
+      fs.existsSync(path.join(DIST_DIR, jsFile)),
+      `Missing content script file ${jsFile}`
+    );
+  }
+
+  assert.ok(manifest.action?.default_popup, "Missing action.default_popup");
+  assert.ok(
+    fs.existsSync(path.join(DIST_DIR, manifest.action.default_popup)),
+    "Missing built popup HTML"
+  );
+  const optionsPage = manifest.options_ui?.page || manifest.options_page;
+  assert.ok(optionsPage, "Missing options page in manifest");
+  assert.ok(
+    fs.existsSync(path.join(DIST_DIR, optionsPage)),
+    "Missing built options HTML"
+  );
+  console.log("  ✓ Manifest V3 build output verified");
+}
+
+async function launchChromeWithCdp(chromePath) {
+  const userDataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "canvas-chatgpt-test-")
+  );
+  const proc = spawn(
+    chromePath,
+    [
+      "--headless=new",
+      "--remote-debugging-port=0",
+      `--user-data-dir=${userDataDir}`,
+      "--enable-unsafe-extension-debugging",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-gpu",
+      "--window-size=1280,800",
+      "about:blank"
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] }
+  );
+
+  const wsUrl = await new Promise((resolve, reject) => {
+    let stderr = "";
+    const timer = setTimeout(() => {
+      reject(
+        new Error(`Chrome did not expose DevTools WebSocket in time.\n${stderr}`)
+      );
+    }, 15000);
+
+    proc.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+      const match = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/);
+      if (match) {
+        clearTimeout(timer);
+        resolve(match[1]);
+      }
+    });
+
+    proc.once("exit", (code) => {
+      clearTimeout(timer);
+      reject(
+        new Error(`Chrome exited prematurely with code ${code}.\n${stderr}`)
+      );
+    });
+  });
+
+  const cdp = new CDPClient(wsUrl);
+  await cdp.connect();
+
+  const cleanup = async () => {
+    try {
+      await Promise.race([
+        cdp.send("Browser.close"),
+        new Promise((r) => setTimeout(r, 1500))
+      ]);
+    } catch {
+      // Ignore
+    }
+    cdp.close();
+    if (!proc.killed) {
+      proc.kill();
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    try {
+      fs.rmSync(userDataDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 150
+      });
+    } catch {
+      // Best-effort temp cleanup on Windows
+    }
+  };
+
+  return { cdp, cleanup };
+}
+
+async function runTests() {
+  verifyManifestV3Build();
+
+  const chromePath = findChromeBinary();
+  console.log(`[2/10] Launching headless Chromium (${chromePath})...`);
+  const { cdp, cleanup } = await launchChromeWithCdp(chromePath);
 
   try {
-    let wsUrl = null;
-    for (let i = 0; i < 30; i++) {
-      try {
-        const res = await fetch(`http://127.0.0.1:${remotePort}/json/list`);
-        const list = await res.json();
-        const p = list.find(t => t.url.includes(`127.0.0.1:${PORT}`));
-        if (p && p.webSocketDebuggerUrl) {
-          wsUrl = p.webSocketDebuggerUrl;
-          break;
+    const loadRes = await cdp.send("Extensions.loadUnpacked", {
+      path: DIST_DIR
+    });
+    const extensionId = loadRes.id;
+    assert.ok(extensionId, "Failed to load unpacked extension via CDP");
+    console.log(`  ✓ Loaded extension id=${extensionId}`);
+
+    const { targetId: chatTargetId } = await cdp.send("Target.createTarget", {
+      url: "about:blank"
+    });
+    const { sessionId: chatSession } = await cdp.send(
+      "Target.attachToTarget",
+      {
+        targetId: chatTargetId,
+        flatten: true
+      }
+    );
+
+    await cdp.send("Page.enable", {}, chatSession);
+    await cdp.send("Runtime.enable", {}, chatSession);
+    await cdp.send(
+      "Fetch.enable",
+      {
+        patterns: [
+          { urlPattern: "https://chatgpt.com/*" },
+          { urlPattern: "https://chat.openai.com/*" },
+          { urlPattern: "https://media.example.test/*" }
+        ]
+      },
+      chatSession
+    );
+
+    cdp.on(
+      "Fetch.requestPaused",
+      async (params) => {
+        const reqUrl = params.request.url;
+        if (
+          reqUrl.startsWith("https://chatgpt.com/") ||
+          reqUrl.startsWith("https://chat.openai.com/")
+        ) {
+          const parsed = new URL(reqUrl);
+          const body = buildMockChatGptHtml(parsed.pathname);
+          await cdp.send(
+            "Fetch.fulfillRequest",
+            {
+              requestId: params.requestId,
+              responseCode: 200,
+              responseHeaders: [
+                { name: "Content-Type", value: "text/html; charset=utf-8" }
+              ],
+              body: Buffer.from(body, "utf8").toString("base64")
+            },
+            chatSession
+          );
+          return;
         }
-      } catch (e) {}
-      await sleep(300);
-    }
 
-    if (!wsUrl) throw new Error("Could not connect to Brave page via CDP");
-    console.log("Connected to Brave CDP:", wsUrl);
-
-    const ws = new WebSocket(wsUrl);
-    await new Promise(r => ws.onopen = r);
-
-    let id = 1;
-    const callbacks = new Map();
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.id && callbacks.has(msg.id)) {
-        callbacks.get(msg.id)(msg.result);
-        callbacks.delete(msg.id);
-      }
-    };
-
-    function send(method, params = {}) {
-      return new Promise((resolve) => {
-        const msgId = id++;
-        callbacks.set(msgId, resolve);
-        ws.send(JSON.stringify({ id: msgId, method, params }));
-      });
-    }
-
-    async function evaluate(code) {
-      const isAsync = code.trim().startsWith('(async');
-      const r = await send('Runtime.evaluate', {
-        expression: code,
-        returnByValue: true,
-        awaitPromise: isAsync
-      });
-      if (r.exceptionDetails) {
-        throw new Error(JSON.stringify(r.exceptionDetails));
-      }
-      return r.result.value;
-    }
-
-    await sleep(2000);
-
-    console.log("\n==================== TEST SUITE EXECUTION IN BRAVE ====================");
-    let passed = 0;
-    let failed = 0;
-
-    async function assertTest(name, fn) {
-      console.log(`-> Starting test: ${name}`);
-      try {
-        const result = await fn();
-        if (result.pass) {
-          console.log(`[PASS] ${name} ${result.info ? '(' + result.info + ')' : ''}`);
-          passed++;
-        } else {
-          console.error(`[FAIL] ${name} - ${result.error}`);
-          failed++;
+        if (reqUrl.startsWith("https://media.example.test/")) {
+          const png1x1 =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+          await cdp.send(
+            "Fetch.fulfillRequest",
+            {
+              requestId: params.requestId,
+              responseCode: 200,
+              responseHeaders: [{ name: "Content-Type", value: "image/png" }],
+              body: png1x1
+            },
+            chatSession
+          );
+          return;
         }
-      } catch (err) {
-        console.error(`[ERROR] ${name} - Exception: ${err.message}`);
-        failed++;
+
+        await cdp.send(
+          "Fetch.continueRequest",
+          { requestId: params.requestId },
+          chatSession
+        );
+      },
+      chatSession
+    );
+
+    console.log(
+      "[3/10] Navigating to https://chatgpt.com/c/chat-alpha & verifying backdrop injection..."
+    );
+    await cdp.send(
+      "Page.navigate",
+      { url: "https://chatgpt.com/c/chat-alpha" },
+      chatSession
+    );
+
+    const injectedState = await waitFor(
+      async () => {
+        return cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const backdrop = document.getElementById("canvas-for-chatgpt-backdrop");
+            const media = document.getElementById("canvas-for-chatgpt-media");
+            const grad = document.getElementById("canvas-for-chatgpt-gradient");
+            const styleEl = document.getElementById("canvas-for-chatgpt-styles");
+            if (!backdrop || !media || !grad || !styleEl) return null;
+            const bStyle = getComputedStyle(backdrop);
+            const mainStyle = getComputedStyle(document.querySelector("main"));
+            const composer = document.querySelector("[data-composer-surface]");
+            const composerStyle = getComputedStyle(composer);
+            const dialogStyle = getComputedStyle(document.querySelector('[role="dialog"]'));
+            return {
+              enabledClass: document.documentElement.classList.contains("canvas-for-chatgpt-enabled"),
+              darkClass: document.documentElement.classList.contains("canvas-for-chatgpt-dark"),
+              backdropTag: backdrop.tagName,
+              pointerEvents: bStyle.pointerEvents,
+              position: bStyle.position,
+              zIndex: bStyle.zIndex,
+              width: Math.round(backdrop.getBoundingClientRect().width),
+              height: Math.round(backdrop.getBoundingClientRect().height),
+              innerWidth: window.innerWidth,
+              innerHeight: window.innerHeight,
+              mediaTag: media.tagName,
+              mediaSrcPrefix: (media.getAttribute("src") || "").slice(0, 24),
+              mainBg: mainStyle.backgroundColor,
+              composerBg: composerStyle.backgroundColor,
+              dialogBg: dialogStyle.backgroundColor
+            };
+          })()`
+        );
+      },
+      10000,
+      100,
+      "backdrop injection"
+    );
+
+    assert.equal(injectedState.enabledClass, true, "Root enabled class missing");
+    assert.equal(injectedState.darkClass, true, "Dark theme class missing");
+    assert.equal(injectedState.pointerEvents, "none");
+    assert.equal(injectedState.position, "fixed");
+    assert.equal(injectedState.zIndex, "0");
+    assert.equal(injectedState.width, injectedState.innerWidth);
+    assert.equal(injectedState.height, injectedState.innerHeight);
+    assert.equal(injectedState.mediaTag, "IMG");
+    assert.ok(injectedState.mediaSrcPrefix.startsWith("data:image/"));
+    assert.equal(
+      injectedState.mainBg,
+      "rgba(0, 0, 0, 0)",
+      "Main wrapper should be transparent"
+    );
+    assert.notEqual(
+      injectedState.composerBg,
+      "rgba(0, 0, 0, 0)",
+      "Composer pill should retain readable background"
+    );
+    assert.notEqual(
+      injectedState.dialogBg,
+      "rgba(0, 0, 0, 0)",
+      "Modal/dialog should preserve readability"
+    );
+    console.log(
+      "  ✓ Backdrop layer, DOM transparency, and composer pill styling verified"
+    );
+
+    console.log(
+      "[4/10] Opening popup.html & testing scope auto-selection, presets, sliders, upload, video..."
+    );
+    const { targetId: popupTargetId } = await cdp.send("Target.createTarget", {
+      url: `chrome-extension://${extensionId}/popup.html`
+    });
+    const { sessionId: popupSession } = await cdp.send(
+      "Target.attachToTarget",
+      {
+        targetId: popupTargetId,
+        flatten: true
       }
-    }
+    );
+    await cdp.send("Runtime.enable", {}, popupSession);
 
-    // 1. Background layer tests
-    await assertTest("Background layer element created in DOM", async () => {
-      const res = await evaluate(`(() => {
-        const bg = document.getElementById('cg-customizer-background');
-        return {
-          pass: !!bg && document.body.contains(bg),
-          info: bg ? 'in body, id=' + bg.id : 'missing'
-        };
-      })()`);
-      return res;
-    });
+    const popupInit = await waitFor(
+      async () => {
+        return cdp.evalInSession(
+          popupSession,
+          `(() => {
+            const tabChat = document.querySelector('[data-testid="scope-tab-chat"]');
+            const banner = document.querySelector('[data-testid="context-banner"]');
+            if (!tabChat || !banner) return null;
+            if (!banner.textContent.includes("Alpha Architecture Discussion")) return null;
+            return {
+              chatSelected: tabChat.getAttribute("aria-selected"),
+              bannerText: banner.textContent
+            };
+          })()`
+        );
+      },
+      8000,
+      100,
+      "popup chat context load"
+    );
+    assert.equal(
+      popupInit.chatSelected,
+      "true",
+      "This Chat tab should auto-select on /c/ URLs"
+    );
 
-    await assertTest("Background image and gradient elements exist with correct styling", async () => {
-      const res = await evaluate(`(() => {
-        const bg = document.getElementById('cg-customizer-background');
-        if (!bg) return { pass: false, error: 'no bg' };
-        const img = bg.querySelector('img');
-        const grad = bg.querySelector('.cg-customizer-gradient');
-        const style = window.getComputedStyle(bg);
-        return {
-          pass: !!img && !!grad && style.position === 'fixed' && style.pointerEvents === 'none',
-          info: 'img.src=' + (img?.src?.slice(0, 30) || '') + '..., zIndex=' + style.zIndex
-        };
-      })()`);
-      return res;
-    });
+    // Select Northern Aurora GIF preset
+    await cdp.evalInSession(
+      popupSession,
+      `document.querySelector('[data-testid="preset-aurora"]').click()`
+    );
 
-    await assertTest("Class cg-customizer-background-enabled and CSS variables applied", async () => {
-      const res = await evaluate(`(() => {
-        const html = document.documentElement;
-        const hasClass = html.classList.contains('cg-customizer-background-enabled');
-        const mainStyle = window.getComputedStyle(document.querySelector('main'));
-        return {
-          pass: hasClass && mainStyle.backgroundColor === 'rgba(0, 0, 0, 0)',
-          info: 'main bg=' + mainStyle.backgroundColor
-        };
-      })()`);
-      return res;
-    });
+    const gifApplied = await waitFor(
+      async () => {
+        return cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const media = document.getElementById("canvas-for-chatgpt-media");
+            return media && media.tagName === "IMG" && (media.getAttribute("src") || "").startsWith("data:image/gif")
+              ? media.getAttribute("src").slice(0, 32)
+              : null;
+          })()`
+        );
+      },
+      6000,
+      100,
+      "animated GIF preset update"
+    );
+    assert.ok(gifApplied.startsWith("data:image/gif"));
 
-    await assertTest("Composer retains readable solid background", async () => {
-      const res = await evaluate(`(() => {
-        const comp = document.querySelector('[data-composer-surface]');
-        const style = window.getComputedStyle(comp);
-        return {
-          pass: style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent',
-          info: 'composer bg=' + style.backgroundColor
-        };
-      })()`);
-      return res;
-    });
+    // Update sliders (opacity, blur, gradient) in real time
+    await cdp.evalInSession(
+      popupSession,
+      `(() => {
+        function setSlider(testId, val) {
+          const el = document.querySelector('[data-testid="' + testId + '"]');
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+          setter.call(el, String(val));
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        setSlider("slider-opacity", 0.42);
+        setSlider("slider-blur", 18);
+        setSlider("slider-gradient", 0.77);
+      })()`
+    );
 
-    // 2. Runtime config patch test (opacity, blur, gradient, image url)
-    await assertTest("Runtime configuration patch applies immediately", async () => {
-      const res = await evaluate(`(async () => {
-        for (const l of window.chrome.runtime.onMessage.listeners) {
-          l({
-            type: 'SET_CFG_PARTIAL',
-            patch: {
-              backgroundImageUrl: 'https://example.com/test-bg.jpg',
-              mainImageOpacity: 0.85,
-              blurAmount: 25,
-              gradientOpacity: 0.75
+    const sliderUpdated = await waitFor(
+      async () => {
+        return cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const media = document.getElementById("canvas-for-chatgpt-media");
+            const grad = document.getElementById("canvas-for-chatgpt-gradient");
+            if (!media || !grad) return null;
+            if (media.style.opacity !== "0.42" || media.style.filter !== "blur(18px)" || grad.style.opacity !== "0.77") {
+              return null;
             }
-          }, {}, () => {});
-        }
-        await new Promise(r => setTimeout(r, 100));
-        
-        const img = document.querySelector('#cg-customizer-background img');
-        const grad = document.querySelector('#cg-customizer-background .cg-customizer-gradient');
-        
-        const matchSrc = img.src === 'https://example.com/test-bg.jpg';
-        const matchOpacity = img.style.opacity === '0.85';
-        const matchBlur = img.style.filter.includes('25px');
-        const matchGrad = grad.style.opacity === '0.75';
-        
-        return {
-          pass: matchSrc && matchOpacity && matchBlur && matchGrad,
-          info: 'src=' + matchSrc + ', opacity=' + matchOpacity + ', blur=' + matchBlur + ', grad=' + matchGrad
-        };
-      })()`);
-      return res;
+            return {
+              opacity: media.style.opacity,
+              filter: media.style.filter,
+              gradOpacity: grad.style.opacity
+            };
+          })()`
+        );
+      },
+      6000,
+      100,
+      "real-time slider application"
+    );
+    assert.deepEqual(sliderUpdated, {
+      opacity: "0.42",
+      filter: "blur(18px)",
+      gradOpacity: "0.77"
     });
 
-    // 3. Clean disable test
-    await assertTest("Disabling customization cleanly removes background and restores styles", async () => {
-      const res = await evaluate(`(async () => {
-        for (const l of window.chrome.runtime.onMessage.listeners) {
-          l({ type: 'SET_CFG_PARTIAL', patch: { enabled: false } }, {}, () => {});
-        }
-        await new Promise(r => setTimeout(r, 100));
-        
-        const bg = document.getElementById('cg-customizer-background');
-        const style = document.getElementById('cg-customizer-background-style');
-        const hasClass = document.documentElement.classList.contains('cg-customizer-background-enabled');
-        
-        return {
-          pass: !bg && !style && !hasClass,
-          info: 'bgRemoved=' + !bg + ', styleRemoved=' + !style + ', classRemoved=' + !hasClass
-        };
-      })()`);
-      return res;
-    });
+    // Apply custom MP4 video URL
+    await cdp.evalInSession(
+      popupSession,
+      `(() => {
+        const input = document.querySelector('[data-testid="custom-url-input"]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        setter.call(input, "https://media.example.test/ambient-loop.mp4");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        document.querySelector('[data-testid="custom-url-apply"]').click();
+      })()`
+    );
 
-    // 4. Clean re-enable test
-    await assertTest("Re-enabling customization restores background and layer cleanly", async () => {
-      const res = await evaluate(`(async () => {
-        for (const l of window.chrome.runtime.onMessage.listeners) {
-          l({ type: 'SET_CFG_PARTIAL', patch: { enabled: true } }, {}, () => {});
-        }
-        await new Promise(r => setTimeout(r, 100));
-        
-        const bg = document.getElementById('cg-customizer-background');
-        const hasClass = document.documentElement.classList.contains('cg-customizer-background-enabled');
-        
-        return {
-          pass: !!bg && hasClass && document.body.contains(bg),
-          info: 'bgRestored=' + !!bg + ', inBody=' + (bg ? document.body.contains(bg) : false)
-        };
-      })()`);
-      return res;
-    });
+    const videoApplied = await waitFor(
+      async () => {
+        return cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const media = document.getElementById("canvas-for-chatgpt-media");
+            if (!media || media.tagName !== "VIDEO") return null;
+            return {
+              tagName: media.tagName,
+              src: media.getAttribute("src"),
+              autoplay: media.autoplay,
+              loop: media.loop,
+              muted: media.muted,
+              playsInline: media.playsInline
+            };
+          })()`
+        );
+      },
+      6000,
+      100,
+      "video wallpaper element"
+    );
+    assert.equal(videoApplied.tagName, "VIDEO");
+    assert.equal(
+      videoApplied.src,
+      "https://media.example.test/ambient-loop.mp4"
+    );
+    assert.equal(videoApplied.autoplay, true);
+    assert.equal(videoApplied.loop, true);
+    assert.equal(videoApplied.muted, true);
+    assert.equal(videoApplied.playsInline, true);
 
-    // 5. Edge case: Extreme opacity and blur boundary values
-    await assertTest("Edge case: Boundary values for opacity (0 & 1) and blur (0 & 100)", async () => {
-      const res = await evaluate(`(async () => {
-        for (const l of window.chrome.runtime.onMessage.listeners) {
-          l({ type: 'SET_CFG_PARTIAL', patch: { mainImageOpacity: 0, blurAmount: 0 } }, {}, () => {});
-        }
-        await new Promise(r => setTimeout(r, 80));
-        const img = document.querySelector('#cg-customizer-background img');
-        const zeroOpacity = img.style.opacity === '0';
-        const zeroBlur = img.style.filter.includes('0px');
+    // Check Saved Backgrounds & Per-Chat Manager in popup
+    const managerCheck = await waitFor(
+      async () => {
+        return cdp.evalInSession(
+          popupSession,
+          `(() => {
+            const saved = document.querySelector('[data-testid="saved-item-0"]');
+            const chatRow = document.querySelector('[data-testid="chat-override-c:chat-alpha"]');
+            if (!saved || !chatRow) return null;
+            return {
+              hasSaved: true,
+              chatRowText: chatRow.textContent
+            };
+          })()`
+        );
+      },
+      6000,
+      100,
+      "saved background & per-chat manager entry"
+    );
+    assert.ok(
+      managerCheck.chatRowText.includes("Alpha Architecture Discussion")
+    );
 
-        for (const l of window.chrome.runtime.onMessage.listeners) {
-          l({ type: 'SET_CFG_PARTIAL', patch: { mainImageOpacity: 1, blurAmount: 100 } }, {}, () => {});
-        }
-        await new Promise(r => setTimeout(r, 80));
-        const maxOpacity = img.style.opacity === '1';
-        const maxBlur = img.style.filter.includes('100px');
+    // Upload local PNG via file input
+    await cdp.evalInSession(
+      popupSession,
+      `(() => {
+        const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const file = new File([bin], "local-upload.png", { type: "image/png" });
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        const input = document.querySelector('[data-testid="upload-media-input"]');
+        input.files = dt.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      })()`
+    );
 
-        return {
-          pass: zeroOpacity && zeroBlur && maxOpacity && maxBlur,
-          info: 'zeroOpacity=' + zeroOpacity + ', zeroBlur=' + zeroBlur + ', maxOpacity=' + maxOpacity + ', maxBlur=' + maxBlur
-        };
-      })()`);
-      return res;
-    });
+    const localUploadApplied = await waitFor(
+      async () => {
+        return cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const media = document.getElementById("canvas-for-chatgpt-media");
+            return media && media.tagName === "IMG" && (media.getAttribute("src") || "").startsWith("data:image/png")
+              ? media.getAttribute("src")
+              : null;
+          })()`
+        );
+      },
+      6000,
+      100,
+      "local media data URL upload"
+    );
+    assert.ok(localUploadApplied.startsWith("data:image/png;base64,"));
 
-    // 6. Edge case: Theme switching light/dark gradient adaptation
-    await assertTest("Edge case: Theme switching adapts gradient properly", async () => {
-      const res = await evaluate(`(async () => {
-        const html = document.documentElement;
-        const grad = document.querySelector('#cg-customizer-background .cg-customizer-gradient');
-        
-        // Switch to light mode
-        html.classList.remove('dark');
-        html.setAttribute('data-theme', 'light');
-        await new Promise(r => setTimeout(r, 100));
-        
-        // Switch back to dark mode
-        html.classList.add('dark');
-        html.setAttribute('data-theme', 'dark');
-        await new Promise(r => setTimeout(r, 100));
-        
-        return {
-          pass: !!grad,
-          info: 'gradient preserved across theme switch'
-        };
-      })()`);
-      return res;
-    });
+    // Delete uploaded saved item and re-apply MP4 URL
+    await waitFor(
+      async () =>
+        cdp.evalInSession(
+          popupSession,
+          `Boolean(document.querySelector('[data-testid="saved-item-1"]'))`
+        ),
+      5000,
+      100,
+      "two saved backgrounds present"
+    );
+    await cdp.evalInSession(
+      popupSession,
+      `document.querySelector('[data-testid="saved-delete-0"]').click()`
+    );
+    await waitFor(
+      async () =>
+        cdp.evalInSession(
+          popupSession,
+          `!document.querySelector('[data-testid="saved-item-1"]')`
+        ),
+      5000,
+      100,
+      "saved background deletion"
+    );
 
-    // 7. SPA Navigation via history.pushState triggers immediate background verification
-    await assertTest("SPA navigation via history.pushState triggers event and preserves background", async () => {
-      const res = await evaluate(`(async () => {
-        let spaEventFired = false;
-        const handler = () => { spaEventFired = true; };
-        window.addEventListener('cg-spa-navigate', handler);
+    await cdp.evalInSession(
+      popupSession,
+      `document.querySelector('[data-testid="saved-item-0"] .saved-apply-btn').click()`
+    );
+    await waitFor(
+      async () =>
+        cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const media = document.getElementById("canvas-for-chatgpt-media");
+            return media && media.tagName === "VIDEO" ? true : null;
+          })()`
+        ),
+      5000,
+      100,
+      "re-apply saved MP4 video"
+    );
+    console.log(
+      "  ✓ Popup presets, GIF, local upload, video, sliders, saved list, and per-chat manager verified"
+    );
 
-        history.pushState({ chat: 123 }, '', '/c/test-chat-456');
-        await new Promise(r => setTimeout(r, 200));
+    console.log(
+      "[5/10] Verifying SPA routing & per-chat wallpaper switching..."
+    );
+    await cdp.evalInSession(
+      chatSession,
+      `(() => {
+        document.title = "Beta Shader Notes - ChatGPT";
+        history.pushState({}, "", "/c/chat-beta");
+      })()`
+    );
 
-        window.removeEventListener('cg-spa-navigate', handler);
-        const bg = document.getElementById('cg-customizer-background');
+    const switchedToBeta = await waitFor(
+      async () => {
+        return cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const media = document.getElementById("canvas-for-chatgpt-media");
+            if (!media || media.tagName !== "IMG") return null;
+            return { tagName: media.tagName, opacity: media.style.opacity, filter: media.style.filter };
+          })()`
+        );
+      },
+      6000,
+      100,
+      "fallback to global default on chat-beta"
+    );
+    assert.equal(switchedToBeta.tagName, "IMG");
+    assert.equal(switchedToBeta.opacity, "0.72");
+    assert.equal(switchedToBeta.filter, "none");
 
-        return {
-          pass: spaEventFired && !!bg && document.body.contains(bg),
-          info: 'spaEventFired=' + spaEventFired + ', bgConnected=' + (bg ? document.body.contains(bg) : false)
-        };
-      })()`);
-      return res;
-    });
+    // Verify /g/:gpt/c/:chat, /g/:gpt, /share/:id, / routes via GET_CHAT_CONTEXT
+    for (const [routePath, expectedKey] of [
+      ["/g/g-demo/c/chat-nested", "c:chat-nested"],
+      ["/g/g-demo", "g:g-demo"],
+      ["/share/share-9", "share:share-9"],
+      ["/", null]
+    ]) {
+      await cdp.evalInSession(
+        chatSession,
+        `history.pushState({}, "", ${JSON.stringify(routePath)})`
+      );
+      const ctxRes = await cdp.evalInSession(
+        popupSession,
+        `new Promise((resolve) => {
+          chrome.tabs.query({ url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] }, (tabs) => {
+            chrome.tabs.sendMessage(tabs[0].id, { type: "GET_CHAT_CONTEXT" }, resolve);
+          });
+        })`
+      );
+      assert.equal(
+        ctxRes.chatKey,
+        expectedKey,
+        `Expected chatKey ${expectedKey} for ${routePath}`
+      );
+    }
 
-    // 8. Immediate background recovery when React removes background layer
-    await assertTest("Immediate background recovery when DOM element is removed", async () => {
-      const res = await evaluate(`(async () => {
-        const bg = document.getElementById('cg-customizer-background');
-        if (!bg) return { pass: false, info: 'no bg' };
+    // Navigate back to chat-alpha and verify custom video wallpaper restores
+    await cdp.evalInSession(
+      chatSession,
+      `history.pushState({}, "", "/c/chat-alpha")`
+    );
+    const restoredAlpha = await waitFor(
+      async () =>
+        cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const media = document.getElementById("canvas-for-chatgpt-media");
+            return media && media.tagName === "VIDEO" ? media.getAttribute("src") : null;
+          })()`
+        ),
+      6000,
+      100,
+      "restore chat-alpha video wallpaper"
+    );
+    assert.equal(restoredAlpha, "https://media.example.test/ambient-loop.mp4");
+    console.log("  ✓ Per-chat, GPT, share, and home SPA routing verified");
 
-        bg.remove();
-        await new Promise(r => setTimeout(r, 250));
-        
-        const restoredBg = document.getElementById('cg-customizer-background');
-        return {
-          pass: !!restoredBg && document.body.contains(restoredBg),
-          info: 'restored=' + !!restoredBg + ', inBody=' + (restoredBg ? document.body.contains(restoredBg) : false)
-        };
-      })()`);
-      return res;
-    });
+    console.log(
+      "[6/10] Verifying composer wrapper transparency, ::before strips, and modern desktop/mobile frosted sidebars..."
+    );
+    const composerAudit = await cdp.evalInSession(
+      chatSession,
+      `(async () => {
+        const styleEl = document.createElement("style");
+        styleEl.id = "test-composer-pseudo-style";
+        styleEl.textContent = ".test-pseudo-wrapper::before { content: ''; position: absolute; inset: 0; background-color: rgb(0, 0, 0); z-index: -1; }";
+        document.head.appendChild(styleEl);
 
-    // 9. Outer rectangular form/wrapper transparency around rounded composer pill
-    await assertTest("Outer rectangular form and div wrappers around rounded prompt pill stay transparent", async () => {
-      const res = await evaluate(`(async () => {
-        const main = document.querySelector('main');
-        const host = document.createElement('div');
-        host.id = 'modern-composer-host';
+        const main = document.querySelector("main");
+        const host = document.createElement("div");
+        host.id = "modern-composer-host";
         host.innerHTML = \`
           <div class="composer-outer-rect" style="background: rgb(20, 20, 20);">
             <form class="composer-form-rect">
               <div class="composer-inner-rect">
                 <div class="composer-pill-rounded" data-composer-surface style="border-radius: 28px; min-height: 52px;">
-                  <div id="prompt-textarea" contenteditable="true">Ask ChatGPT</div>
+                  <div id="prompt-textarea-2" contenteditable="true">Ask ChatGPT</div>
                 </div>
               </div>
             </form>
@@ -489,143 +935,54 @@ server.listen(0, async () => {
               </div>
             </form>
           </div>
+          <footer data-ds-composer>
+            <span aria-hidden="true" class="test-strip" style="position: absolute; inset-inline: 0; bottom: 0; height: 24px; background: rgb(0, 0, 0);"></span>
+            <div class="test-pseudo-wrapper" style="position: relative;">
+              <form class="test-rounded-form" style="border-radius: 28px; min-height: 52px; background: rgb(33, 33, 33);">
+                <textarea placeholder="Ask ChatGPT"></textarea>
+              </form>
+            </div>
+          </footer>
         \`;
         main.appendChild(host);
-        await new Promise(r => setTimeout(r, 350));
+        await new Promise((r) => setTimeout(r, 250));
 
-        const outerRectBg = window.getComputedStyle(host.querySelector('.composer-outer-rect')).backgroundColor;
-        const formRectBg = window.getComputedStyle(host.querySelector('.composer-form-rect')).backgroundColor;
-        const innerRectBg = window.getComputedStyle(host.querySelector('.composer-inner-rect')).backgroundColor;
-        const pillBg = window.getComputedStyle(host.querySelector('.composer-pill-rounded')).backgroundColor;
-
-        const outerNoAttrBg = window.getComputedStyle(host.querySelector('.composer-outer-no-attr')).backgroundColor;
-        const formNoAttrBg = window.getComputedStyle(host.querySelector('.composer-form-no-attr')).backgroundColor;
-        const pillNoAttrBg = window.getComputedStyle(host.querySelector('.composer-pill-no-attr')).backgroundColor;
+        const res = {
+          outerRectBg: getComputedStyle(host.querySelector(".composer-outer-rect")).backgroundColor,
+          formRectBg: getComputedStyle(host.querySelector(".composer-form-rect")).backgroundColor,
+          innerRectBg: getComputedStyle(host.querySelector(".composer-inner-rect")).backgroundColor,
+          pillBg: getComputedStyle(host.querySelector(".composer-pill-rounded")).backgroundColor,
+          outerNoAttrBg: getComputedStyle(host.querySelector(".composer-outer-no-attr")).backgroundColor,
+          formNoAttrBg: getComputedStyle(host.querySelector(".composer-form-no-attr")).backgroundColor,
+          pillNoAttrBg: getComputedStyle(host.querySelector(".composer-pill-no-attr")).backgroundColor,
+          stripBg: getComputedStyle(host.querySelector(".test-strip")).backgroundColor,
+          pseudoBg: getComputedStyle(host.querySelector(".test-pseudo-wrapper"), "::before").backgroundColor,
+          roundedFormBg: getComputedStyle(host.querySelector(".test-rounded-form")).backgroundColor
+        };
 
         host.remove();
-        await new Promise(r => setTimeout(r, 300));
-
-        const wrappersTransparent =
-          outerRectBg === 'rgba(0, 0, 0, 0)' &&
-          formRectBg === 'rgba(0, 0, 0, 0)' &&
-          innerRectBg === 'rgba(0, 0, 0, 0)' &&
-          outerNoAttrBg === 'rgba(0, 0, 0, 0)' &&
-          formNoAttrBg === 'rgba(0, 0, 0, 0)';
-        const pillsSolid =
-          pillBg !== 'rgba(0, 0, 0, 0)' && pillBg !== 'transparent' &&
-          pillNoAttrBg !== 'rgba(0, 0, 0, 0)' && pillNoAttrBg !== 'transparent';
-
-        return {
-          pass: wrappersTransparent && pillsSolid,
-          info: 'formBg=' + formRectBg + ', innerRectBg=' + innerRectBg + ', pillBg=' + pillBg + ', pillNoAttrBg=' + pillNoAttrBg
-        };
-      })()`);
-      return res;
-    });
-
-    // 10. Footer backdrop strips and ::before backdrops stay transparent behind rounded form pill
-    await assertTest("Footer backdrop strips and ::before layers stay transparent behind rounded form", async () => {
-      const res = await evaluate(`(async () => {
-        const styleEl = document.createElement('style');
-        styleEl.id = 'test-pseudo-backdrop-style';
-        styleEl.textContent = '.test-pseudo-wrapper::before { content: ""; position: absolute; inset: 0; background-color: rgb(0, 0, 0); z-index: -1; }';
-        document.head.appendChild(styleEl);
-
-        const footer = document.createElement('footer');
-        footer.setAttribute('data-ds-composer', '');
-        footer.innerHTML = \`
-          <span aria-hidden="true" class="test-strip" style="position: absolute; inset-inline: 0; bottom: 0; height: 24px; background: rgb(0, 0, 0);"></span>
-          <div class="test-pseudo-wrapper" style="position: relative;">
-            <form class="test-rounded-form" style="border-radius: 28px; min-height: 52px; background: rgb(33, 33, 33);">
-              <textarea placeholder="Ask ChatGPT"></textarea>
-            </form>
-          </div>
-        \`;
-        document.body.appendChild(footer);
-        await new Promise(r => setTimeout(r, 350));
-
-        const stripBg = window.getComputedStyle(footer.querySelector('.test-strip')).backgroundColor;
-        const pseudoBg = window.getComputedStyle(footer.querySelector('.test-pseudo-wrapper'), '::before').backgroundColor;
-        const formBg = window.getComputedStyle(footer.querySelector('.test-rounded-form')).backgroundColor;
-
-        footer.remove();
         styleEl.remove();
-        await new Promise(r => setTimeout(r, 300));
+        return res;
+      })()`
+    );
+    assert.equal(composerAudit.outerRectBg, "rgba(0, 0, 0, 0)");
+    assert.equal(composerAudit.formRectBg, "rgba(0, 0, 0, 0)");
+    assert.equal(composerAudit.innerRectBg, "rgba(0, 0, 0, 0)");
+    assert.notEqual(composerAudit.pillBg, "rgba(0, 0, 0, 0)");
+    assert.equal(composerAudit.outerNoAttrBg, "rgba(0, 0, 0, 0)");
+    assert.equal(composerAudit.formNoAttrBg, "rgba(0, 0, 0, 0)");
+    assert.notEqual(composerAudit.pillNoAttrBg, "rgba(0, 0, 0, 0)");
+    assert.equal(composerAudit.stripBg, "rgba(0, 0, 0, 0)");
+    assert.equal(composerAudit.pseudoBg, "rgba(0, 0, 0, 0)");
+    assert.notEqual(composerAudit.roundedFormBg, "rgba(0, 0, 0, 0)");
 
-        return {
-          pass: stripBg === 'rgba(0, 0, 0, 0)' && pseudoBg === 'rgba(0, 0, 0, 0)' && formBg === 'rgb(33, 33, 33)',
-          info: 'stripBg=' + stripBg + ', pseudoBg=' + pseudoBg + ', formBg=' + formBg
-        };
-      })()`);
-      return res;
-    });
-
-    // 11. Per-chat wallpapers apply per route and fall back to Global Default
-    await assertTest("Per-chat wallpapers switch across chats and fall back to Global Default", async () => {
-      const res = await evaluate(`(async () => {
-        for (const l of window.chrome.runtime.onMessage.listeners) {
-          l({
-            type: 'SET_CFG_PARTIAL',
-            patch: {
-              backgroundImageUrl: 'https://example.com/global-default.jpg',
-              mainImageOpacity: 0.5,
-              blurAmount: 20,
-              chatBackgrounds: {
-                'c:chat-alpha': {
-                  backgroundImageUrl: 'https://example.com/alpha.jpg',
-                  mainImageOpacity: 0.9,
-                  blurAmount: 5
-                },
-                'c:chat-beta': {
-                  backgroundImageUrl: 'https://example.com/beta.jpg',
-                  mainImageOpacity: 0.35,
-                  blurAmount: 40
-                }
-              }
-            }
-          }, {}, () => {});
-        }
-        await new Promise(r => setTimeout(r, 100));
-
-        history.pushState({}, '', '/c/chat-alpha');
-        await new Promise(r => setTimeout(r, 150));
-        const img = document.querySelector('#cg-customizer-background img');
-        const alphaOk = img.src === 'https://example.com/alpha.jpg' && img.style.opacity === '0.9' && img.style.filter.includes('5px');
-
-        let ctxAlpha = null;
-        for (const l of window.chrome.runtime.onMessage.listeners) {
-          l({ type: 'GET_CHAT_CONTEXT' }, {}, (resp) => { if (resp) ctxAlpha = resp; });
-        }
-
-        history.pushState({}, '', '/g/g-demo/c/chat-beta');
-        await new Promise(r => setTimeout(r, 150));
-        const betaOk = img.src === 'https://example.com/beta.jpg' && img.style.opacity === '0.35' && img.style.filter.includes('40px');
-
-        history.pushState({}, '', '/c/chat-no-override');
-        await new Promise(r => setTimeout(r, 150));
-        const fallbackOk = img.src === 'https://example.com/global-default.jpg' && img.style.opacity === '0.5' && img.style.filter.includes('20px');
-
-        history.pushState({}, '', '/');
-        await new Promise(r => setTimeout(r, 150));
-        const rootFallbackOk = img.src === 'https://example.com/global-default.jpg';
-
-        return {
-          pass: alphaOk && betaOk && fallbackOk && rootFallbackOk && ctxAlpha?.chatKey === 'c:chat-alpha',
-          info: 'alpha=' + alphaOk + ', beta=' + betaOk + ', fallback=' + fallbackOk + ', root=' + rootFallbackOk + ', ctxKey=' + ctxAlpha?.chatKey
-        };
-      })()`);
-      return res;
-    });
-
-    // 12. Modern ChatGPT #stage-slideover-sidebar becomes single frosted-glass surface while preserving pills/buttons/menus
-    await assertTest("Modern #stage-slideover-sidebar becomes uniform frosted glass without flattening pills or avatars", async () => {
-      const res = await evaluate(`(async () => {
-        const styleEl = document.createElement('style');
-        styleEl.id = 'test-modern-sidebar-style';
+    const sidebarAudit = await cdp.evalInSession(
+      chatSession,
+      `(async () => {
+        const styleEl = document.createElement("style");
+        styleEl.id = "test-modern-sidebar-style";
         styleEl.textContent = \`
-          #stage-slideover-sidebar {
-            --sidebar-surface-primary: rgb(22, 22, 22);
-            --bg-elevated-secondary: rgb(22, 22, 22);
+          #modern-sidebar-host #stage-slideover-sidebar {
             width: 260px;
             height: 500px;
           }
@@ -640,12 +997,12 @@ server.listen(0, async () => {
         \`;
         document.head.appendChild(styleEl);
 
-        const appShell = document.createElement('div');
-        appShell.id = 'modern-sidebar-host';
-        appShell.style.backgroundColor = 'rgb(22, 22, 22)';
+        const appShell = document.createElement("div");
+        appShell.id = "modern-sidebar-host";
+        appShell.style.backgroundColor = "rgb(22, 22, 22)";
         appShell.innerHTML = \`
           <div class="shell-inner" style="background-color: rgb(22, 22, 22);">
-            <div id="stage-slideover-sidebar" style="background-color: var(--bg-elevated-secondary);">
+            <div id="stage-slideover-sidebar" style="background-color: rgb(22, 22, 22);">
               <div class="sidebar-inner-wrapper" style="display: flex; flex-direction: column; height: 100%; background-color: rgb(22, 22, 22);">
                 <div id="stage-sidebar-tiny-bar" style="background: transparent;"></div>
                 <nav aria-label="Chat history" style="display: flex; flex-direction: column; height: 100%; background-color: rgb(22, 22, 22);">
@@ -667,7 +1024,6 @@ server.listen(0, async () => {
                       <a href="/c/one">Java Crash Course</a>
                       <button type="button" aria-label="Options">...</button>
                     </div>
-                    <a href="/c/two">OS Notes</a>
                   </div>
                   <div class="sidebar-footer-wrap" style="background-color: rgb(22, 22, 22); height: 90px;">
                     <button type="button" class="profile-btn" style="border-radius: 8px; height: 40px; background-color: transparent;">
@@ -681,110 +1037,6 @@ server.listen(0, async () => {
               </div>
             </div>
           </div>
-        \`;
-        document.body.appendChild(appShell);
-        await new Promise(r => setTimeout(r, 350));
-
-        const root = appShell.querySelector('#stage-slideover-sidebar');
-        const rootCs = window.getComputedStyle(root);
-        const shellInnerBg = window.getComputedStyle(appShell.querySelector('.shell-inner')).backgroundColor;
-        const innerWrapBg = window.getComputedStyle(appShell.querySelector('.sidebar-inner-wrapper')).backgroundColor;
-        const navBg = window.getComputedStyle(appShell.querySelector('nav')).backgroundColor;
-        const navBlur = window.getComputedStyle(appShell.querySelector('nav')).backdropFilter;
-        const headerWrapBg = window.getComputedStyle(appShell.querySelector('.sticky-header-wrap')).backgroundColor;
-        const headerElBg = window.getComputedStyle(appShell.querySelector('#sidebar-header')).backgroundColor;
-        const asideBg = window.getComputedStyle(appShell.querySelector('.sidebar-top-links')).backgroundColor;
-        const scrollWrapBg = window.getComputedStyle(appShell.querySelector('.sidebar-scroll-fade')).backgroundColor;
-        const scrollPseudoBg = window.getComputedStyle(appShell.querySelector('.sidebar-scroll-fade'), '::before').backgroundColor;
-        const stickySecCs = window.getComputedStyle(appShell.querySelector('.history-section-sticky'));
-        const footerWrapBg = window.getComputedStyle(appShell.querySelector('.sidebar-footer-wrap')).backgroundColor;
-
-        const newChatBg = window.getComputedStyle(appShell.querySelector('.new-chat-pill')).backgroundColor;
-        const chatRowBg = window.getComputedStyle(appShell.querySelector('.chat-row-group')).backgroundColor;
-        const avatarBg = window.getComputedStyle(appShell.querySelector('.avatar-badge')).backgroundColor;
-        const claimOfferBg = window.getComputedStyle(appShell.querySelector('.claim-offer-btn')).backgroundColor;
-        const menuBg = window.getComputedStyle(appShell.querySelector('.sidebar-context-menu')).backgroundColor;
-
-        const rootBg = rootCs.backgroundColor;
-        const rootBlur = rootCs.backdropFilter;
-        const stickyBg = stickySecCs.backgroundColor;
-        const stickyBlur = stickySecCs.backdropFilter;
-
-        const darkFrostedOk = rootBg === 'rgba(24, 24, 24, 0.4)' && (rootBlur || '').includes('blur(12px)');
-        const innerTransparentOk =
-          shellInnerBg === 'rgba(0, 0, 0, 0)' &&
-          innerWrapBg === 'rgba(0, 0, 0, 0)' &&
-          navBg === 'rgba(0, 0, 0, 0)' &&
-          navBlur === 'none' &&
-          headerWrapBg === 'rgba(0, 0, 0, 0)' &&
-          headerElBg === 'rgba(0, 0, 0, 0)' &&
-          asideBg === 'rgba(0, 0, 0, 0)' &&
-          scrollWrapBg === 'rgba(0, 0, 0, 0)' &&
-          scrollPseudoBg === 'rgba(0, 0, 0, 0)' &&
-          stickyBg === 'rgba(0, 0, 0, 0)' &&
-          (stickyBlur || '').includes('blur(12px)') &&
-          footerWrapBg === 'rgba(0, 0, 0, 0)';
-        const interactivePreservedOk =
-          newChatBg === 'rgb(46, 46, 46)' &&
-          chatRowBg === 'rgb(40, 40, 40)' &&
-          avatarBg === 'rgb(44, 182, 156)' &&
-          claimOfferBg === 'rgb(33, 33, 33)' &&
-          menuBg === 'rgb(42, 42, 42)';
-
-        // Also verify light mode adapts frosted tint cleanly
-        document.documentElement.classList.remove('dark');
-        document.documentElement.setAttribute('data-theme', 'light');
-        await new Promise(r => setTimeout(r, 120));
-        const lightBg = window.getComputedStyle(root).backgroundColor;
-        const lightFrostedOk = lightBg === 'rgba(255, 255, 255, 0.4)';
-
-        // Restore dark mode, verify disabling cleans sidebar attributes, then re-enable & cleanup
-        document.documentElement.classList.add('dark');
-        document.documentElement.setAttribute('data-theme', 'dark');
-        await new Promise(r => setTimeout(r, 120));
-
-        for (const l of window.chrome.runtime.onMessage.listeners) {
-          l({ type: 'SET_CFG_PARTIAL', patch: { enabled: false } }, {}, () => {});
-        }
-        await new Promise(r => setTimeout(r, 100));
-        const cleanedUpOk =
-          document.querySelectorAll('[data-cg-sidebar-surface], [data-cg-sidebar-ancestor], [data-cg-sidebar-transparent], [data-cg-sidebar-sticky], [data-cg-sidebar-pseudo-bg]').length === 0 &&
-          window.getComputedStyle(root).backgroundColor === 'rgb(22, 22, 22)';
-
-        for (const l of window.chrome.runtime.onMessage.listeners) {
-          l({ type: 'SET_CFG_PARTIAL', patch: { enabled: true } }, {}, () => {});
-        }
-        await new Promise(r => setTimeout(r, 100));
-
-        appShell.remove();
-        styleEl.remove();
-        await new Promise(r => setTimeout(r, 300));
-
-        const diag =
-          'darkFrosted=' + darkFrostedOk + '(' + rootBg + '|' + rootBlur + ')' +
-          ', lightFrosted=' + lightFrostedOk + '(' + lightBg + ')' +
-          ', innerTransparent=' + innerTransparentOk +
-          '[shell=' + shellInnerBg + ',wrap=' + innerWrapBg + ',nav=' + navBg + ',navBlur=' + navBlur + ',hw=' + headerWrapBg + ',he=' + headerElBg + ',aside=' + asideBg + ',scroll=' + scrollWrapBg + ',pseudo=' + scrollPseudoBg + ',sticky=' + stickyBg + '|' + stickyBlur + ',footer=' + footerWrapBg + ']' +
-          ', interactivePreserved=' + interactivePreservedOk +
-          '[new=' + newChatBg + ',row=' + chatRowBg + ',avatar=' + avatarBg + ',claim=' + claimOfferBg + ',menu=' + menuBg + ']' +
-          ', cleanedUp=' + cleanedUpOk;
-
-        const pass = darkFrostedOk && innerTransparentOk && lightFrostedOk && interactivePreservedOk && cleanedUpOk;
-        return {
-          pass,
-          info: diag,
-          error: pass ? undefined : diag
-        };
-      })()`);
-      return res;
-    });
-
-    // 13. Mobile #stage-popover-sidebar gets frosted glass without affecting unrelated dialogs
-    await assertTest("Mobile #stage-popover-sidebar gets frosted glass while unrelated dialogs stay solid", async () => {
-      const res = await evaluate(`(async () => {
-        const host = document.createElement('div');
-        host.id = 'mobile-popover-host';
-        host.innerHTML = \`
           <div class="popover-scrim" style="position: fixed; inset: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.5);">
             <div id="stage-popover-sidebar" role="dialog" style="width: 260px; height: 480px; background-color: rgb(22, 22, 22);">
               <nav aria-label="Chat history" style="height: 100%; background-color: rgb(22, 22, 22);">
@@ -796,76 +1048,318 @@ server.listen(0, async () => {
             <nav aria-label="Settings tabs" style="background-color: rgb(45, 45, 45);">Settings Nav</nav>
           </div>
         \`;
-        document.body.appendChild(host);
-        await new Promise(r => setTimeout(r, 350));
+        document.body.appendChild(appShell);
+        await new Promise((r) => setTimeout(r, 250));
 
-        const scrimBg = window.getComputedStyle(host.querySelector('.popover-scrim')).backgroundColor;
-        const popoverBg = window.getComputedStyle(host.querySelector('#stage-popover-sidebar')).backgroundColor;
-        const popoverNavBg = window.getComputedStyle(host.querySelector('#stage-popover-sidebar nav')).backgroundColor;
-        const modalBg = window.getComputedStyle(host.querySelector('#settings-modal')).backgroundColor;
-        const modalNavBg = window.getComputedStyle(host.querySelector('#settings-modal nav')).backgroundColor;
+        const root = appShell.querySelector("#stage-slideover-sidebar");
+        const rootCs = getComputedStyle(root);
+        const popoverCs = getComputedStyle(appShell.querySelector("#stage-popover-sidebar"));
+        const res = {
+          rootBg: rootCs.backgroundColor,
+          rootBlur: rootCs.backdropFilter || rootCs.webkitBackdropFilter || "",
+          shellInnerBg: getComputedStyle(appShell.querySelector(".shell-inner")).backgroundColor,
+          innerWrapBg: getComputedStyle(appShell.querySelector(".sidebar-inner-wrapper")).backgroundColor,
+          navBg: getComputedStyle(appShell.querySelector("#stage-slideover-sidebar nav")).backgroundColor,
+          navBlur: getComputedStyle(appShell.querySelector("#stage-slideover-sidebar nav")).backdropFilter,
+          headerWrapBg: getComputedStyle(appShell.querySelector(".sticky-header-wrap")).backgroundColor,
+          headerElBg: getComputedStyle(appShell.querySelector("#sidebar-header")).backgroundColor,
+          asideBg: getComputedStyle(appShell.querySelector(".sidebar-top-links")).backgroundColor,
+          scrollWrapBg: getComputedStyle(appShell.querySelector(".sidebar-scroll-fade")).backgroundColor,
+          scrollPseudoBg: getComputedStyle(appShell.querySelector(".sidebar-scroll-fade"), "::before").backgroundColor,
+          stickySecBg: getComputedStyle(appShell.querySelector(".history-section-sticky")).backgroundColor,
+          footerWrapBg: getComputedStyle(appShell.querySelector(".sidebar-footer-wrap")).backgroundColor,
+          newChatBg: getComputedStyle(appShell.querySelector(".new-chat-pill")).backgroundColor,
+          chatRowBg: getComputedStyle(appShell.querySelector(".chat-row-group")).backgroundColor,
+          avatarBg: getComputedStyle(appShell.querySelector(".avatar-badge")).backgroundColor,
+          claimOfferBg: getComputedStyle(appShell.querySelector(".claim-offer-btn")).backgroundColor,
+          menuBg: getComputedStyle(appShell.querySelector(".sidebar-context-menu")).backgroundColor,
+          scrimBg: getComputedStyle(appShell.querySelector(".popover-scrim")).backgroundColor,
+          popoverBg: popoverCs.backgroundColor,
+          popoverNavBg: getComputedStyle(appShell.querySelector("#stage-popover-sidebar nav")).backgroundColor,
+          modalBg: getComputedStyle(appShell.querySelector("#settings-modal")).backgroundColor,
+          modalNavBg: getComputedStyle(appShell.querySelector("#settings-modal nav")).backgroundColor
+        };
 
-        host.remove();
-        await new Promise(r => setTimeout(r, 300));
+        appShell.remove();
+        styleEl.remove();
+        return res;
+      })()`
+    );
 
-        const pass =
-          scrimBg === 'rgba(0, 0, 0, 0.5)' &&
-          popoverBg === 'rgba(24, 24, 24, 0.4)' &&
-          popoverNavBg === 'rgba(0, 0, 0, 0)' &&
-          modalBg === 'rgb(40, 40, 40)' &&
-          modalNavBg === 'rgb(45, 45, 45)';
-        const diag = 'scrim=' + scrimBg + ', popover=' + popoverBg + ', popoverNav=' + popoverNavBg + ', modal=' + modalBg + ', modalNav=' + modalNavBg;
+    assert.equal(sidebarAudit.rootBg, "rgba(24, 24, 28, 0.42)");
+    assert.ok(sidebarAudit.rootBlur.includes("blur(12px)"));
+    assert.equal(sidebarAudit.shellInnerBg, "rgba(0, 0, 0, 0)");
+    assert.equal(sidebarAudit.innerWrapBg, "rgba(0, 0, 0, 0)");
+    assert.equal(sidebarAudit.navBg, "rgba(0, 0, 0, 0)");
+    assert.equal(sidebarAudit.navBlur, "none");
+    assert.equal(sidebarAudit.headerWrapBg, "rgba(0, 0, 0, 0)");
+    assert.equal(sidebarAudit.headerElBg, "rgba(0, 0, 0, 0)");
+    assert.equal(sidebarAudit.asideBg, "rgba(0, 0, 0, 0)");
+    assert.equal(sidebarAudit.scrollWrapBg, "rgba(0, 0, 0, 0)");
+    assert.equal(sidebarAudit.scrollPseudoBg, "rgba(0, 0, 0, 0)");
+    assert.equal(sidebarAudit.stickySecBg, "rgba(0, 0, 0, 0)");
+    assert.equal(sidebarAudit.footerWrapBg, "rgba(0, 0, 0, 0)");
+    assert.equal(sidebarAudit.newChatBg, "rgb(46, 46, 46)");
+    assert.equal(sidebarAudit.chatRowBg, "rgb(40, 40, 40)");
+    assert.equal(sidebarAudit.avatarBg, "rgb(44, 182, 156)");
+    assert.equal(sidebarAudit.claimOfferBg, "rgb(33, 33, 33)");
+    assert.equal(sidebarAudit.menuBg, "rgb(42, 42, 42)");
+    assert.equal(sidebarAudit.scrimBg, "rgba(0, 0, 0, 0.5)");
+    assert.equal(sidebarAudit.popoverBg, "rgba(24, 24, 28, 0.42)");
+    assert.equal(sidebarAudit.popoverNavBg, "rgba(0, 0, 0, 0)");
+    assert.equal(sidebarAudit.modalBg, "rgb(40, 40, 40)");
+    assert.equal(sidebarAudit.modalNavBg, "rgb(45, 45, 45)");
+    console.log(
+      "  ✓ Composer wrapper transparency & unified frosted desktop/mobile sidebars verified"
+    );
+
+    console.log("[7/10] Verifying theme switching (dark -> light -> dark)...");
+    await cdp.evalInSession(
+      chatSession,
+      `(() => {
+        document.documentElement.classList.remove("dark");
+        document.documentElement.classList.add("light");
+        document.documentElement.setAttribute("data-theme", "light");
+      })()`
+    );
+    const lightApplied = await waitFor(
+      async () =>
+        cdp.evalInSession(
+          chatSession,
+          `document.documentElement.classList.contains("canvas-for-chatgpt-light")`
+        ),
+      5000,
+      100,
+      "light theme class"
+    );
+    assert.equal(lightApplied, true);
+
+    await cdp.evalInSession(
+      chatSession,
+      `(() => {
+        document.documentElement.classList.remove("light");
+        document.documentElement.classList.add("dark");
+        document.documentElement.setAttribute("data-theme", "dark");
+      })()`
+    );
+    await waitFor(
+      async () =>
+        cdp.evalInSession(
+          chatSession,
+          `document.documentElement.classList.contains("canvas-for-chatgpt-dark")`
+        ),
+      5000,
+      100,
+      "dark theme restore"
+    );
+    console.log("  ✓ Light/dark theme synchronization verified");
+
+    console.log(
+      "[8/10] Verifying MutationObserver DOM recovery & enable/disable toggle..."
+    );
+    await cdp.evalInSession(
+      chatSession,
+      `(() => {
+        document.getElementById("canvas-for-chatgpt-backdrop")?.remove();
+        document.getElementById("canvas-for-chatgpt-styles")?.remove();
+        document.documentElement.classList.remove("canvas-for-chatgpt-enabled");
+      })()`
+    );
+
+    const recovered = await waitFor(
+      async () =>
+        cdp.evalInSession(
+          chatSession,
+          `Boolean(
+            document.getElementById("canvas-for-chatgpt-backdrop") &&
+            document.getElementById("canvas-for-chatgpt-media") &&
+            document.getElementById("canvas-for-chatgpt-styles") &&
+            document.documentElement.classList.contains("canvas-for-chatgpt-enabled")
+          )`
+        ),
+      5000,
+      100,
+      "DOM mutation recovery"
+    );
+    assert.equal(recovered, true);
+
+    // Disable via popup toggle and verify clean teardown
+    await cdp.evalInSession(
+      popupSession,
+      `document.querySelector('[data-testid="enable-toggle"]').click()`
+    );
+    const tornDown = await waitFor(
+      async () =>
+        cdp.evalInSession(
+          chatSession,
+          `Boolean(
+            !document.getElementById("canvas-for-chatgpt-backdrop") &&
+            !document.getElementById("canvas-for-chatgpt-styles") &&
+            !document.documentElement.classList.contains("canvas-for-chatgpt-enabled") &&
+            document.querySelectorAll("[data-canvas-chatgpt-composer], [data-canvas-chatgpt-composer-wrapper], [data-canvas-chatgpt-ancestor]").length === 0
+          )`
+        ),
+      5000,
+      100,
+      "clean disable teardown"
+    );
+    assert.equal(tornDown, true);
+
+    // Re-enable and verify Reset This Chat to Default
+    await cdp.evalInSession(
+      popupSession,
+      `document.querySelector('[data-testid="enable-toggle"]').click()`
+    );
+    await waitFor(
+      async () =>
+        cdp.evalInSession(
+          chatSession,
+          `Boolean(document.getElementById("canvas-for-chatgpt-backdrop"))`
+        ),
+      5000,
+      100,
+      "re-enable backdrop"
+    );
+
+    await cdp.evalInSession(
+      popupSession,
+      `document.querySelector('[data-testid="reset-this-chat-btn"]').click()`
+    );
+    const resetWorked = await waitFor(
+      async () =>
+        cdp.evalInSession(
+          popupSession,
+          `!document.querySelector('[data-testid="chat-override-c:chat-alpha"]')`
+        ),
+      5000,
+      100,
+      "reset chat override"
+    );
+    assert.equal(resetWorked, true);
+    console.log(
+      "  ✓ DOM mutation recovery, toggle teardown, and reset controls verified"
+    );
+
+    console.log(
+      "[9/10] Benchmarking ChatGPT streaming & typing lag (250 rapid streaming mutations + sidebar stability)..."
+    );
+    await cdp.send("Target.activateTarget", { targetId: chatTargetId });
+    const perfResult = await cdp.evalInSession(
+      chatSession,
+      `(async () => {
+        // Populate 120 sidebar history items to mirror real ChatGPT sidebar size
+        const nav = document.querySelector("#stage-slideover-sidebar nav");
+        for (let i = 0; i < 120; i++) {
+          const a = document.createElement("a");
+          a.href = "/c/hist-" + i;
+          a.textContent = "Conversation history item #" + i;
+          nav.appendChild(a);
+        }
+
+        // Count any attribute churn triggered on sidebar during streaming
+        let sidebarAttributeMutations = 0;
+        const sidebarSpy = new MutationObserver((list) => {
+          sidebarAttributeMutations += list.length;
+        });
+        sidebarSpy.observe(document.getElementById("stage-slideover-sidebar"), {
+          attributes: true,
+          subtree: true
+        });
+
+        const yieldTask = () => new Promise((r) => {
+          const mc = new MessageChannel();
+          mc.port1.onmessage = r;
+          mc.port2.postMessage(null);
+        });
+
+        const assistantP = document.querySelector('[data-message-author-role="assistant"] .markdown p');
+        const promptInput = document.getElementById("prompt-textarea");
+        const start = performance.now();
+
+        for (let i = 0; i < 250; i++) {
+          const span = document.createElement("span");
+          span.textContent = " token" + i;
+          assistantP.appendChild(span);
+          if (i % 10 === 0) {
+            promptInput.textContent = "drafting " + i;
+          }
+          await yieldTask();
+        }
+
+        // Let any debounced observers settle
+        await new Promise((r) => setTimeout(r, 200));
+        const elapsedMs = performance.now() - start;
+        sidebarSpy.disconnect();
 
         return {
-          pass,
-          info: diag,
-          error: pass ? undefined : diag
+          elapsedMs: Math.round(elapsedMs),
+          sidebarAttributeMutations,
+          backdropPresent: Boolean(document.getElementById("canvas-for-chatgpt-backdrop"))
         };
-      })()`);
-      return res;
-    });
+      })()`
+    );
+    assert.equal(perfResult.backdropPresent, true);
+    assert.equal(
+      perfResult.sidebarAttributeMutations,
+      0,
+      `Expected 0 sidebar attribute mutations during streaming, got ${perfResult.sidebarAttributeMutations}`
+    );
+    assert.ok(
+      perfResult.elapsedMs < 3000,
+      `Streaming benchmark took too long: ${perfResult.elapsedMs}ms`
+    );
+    console.log(
+      `  ✓ Streaming benchmark passed (250 chunks in ${perfResult.elapsedMs}ms, 0 sidebar attribute churn)`
+    );
 
-    // 14. Manifest V3 version specification compliance (Chromium 1-4 dot-separated integer constraint)
-    await assertTest("Manifest V3 version specification strictly complies with Chromium integer constraints", async () => {
-      const manifestPath = path.join(extensionBuildDir, 'manifest.json');
-      if (!fs.existsSync(manifestPath)) {
-        return { pass: false, error: 'manifest.json missing in build' };
+    console.log(
+      "[10/10] Verifying Options page renders README.md via marked..."
+    );
+    const { targetId: optionsTargetId } = await cdp.send(
+      "Target.createTarget",
+      {
+        url: `chrome-extension://${extensionId}/options.html`
       }
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      const versionStr = manifest.version;
-      const versionParts = typeof versionStr === 'string' ? versionStr.split('.') : [];
-      const isIntegerParts = versionParts.length >= 1 && versionParts.length <= 4 &&
-        versionParts.every(p => /^\d+$/.test(p) && Number(p) >= 0 && Number(p) <= 65535);
-
-      if (!isIntegerParts) {
-        return {
-          pass: false,
-          error: `manifest.version "${versionStr}" is invalid for Chromium (must be 1-4 dot-separated integers 0-65535)`
-        };
+    );
+    const { sessionId: optionsSession } = await cdp.send(
+      "Target.attachToTarget",
+      {
+        targetId: optionsTargetId,
+        flatten: true
       }
+    );
+    await cdp.send("Runtime.enable", {}, optionsSession);
 
-      return {
-        pass: true,
-        info: `version=${manifest.version}, version_name=${manifest.version_name}`
-      };
-    });
+    const optionsContent = await waitFor(
+      async () => {
+        return cdp.evalInSession(
+          optionsSession,
+          `(() => {
+            const el = document.querySelector('[data-testid="options-readme"]');
+            if (!el) return null;
+            const h1 = el.querySelector("h1")?.textContent || "";
+            const h2s = Array.from(el.querySelectorAll("h2")).map((n) => n.textContent);
+            return { h1, h2s };
+          })()`
+        );
+      },
+      6000,
+      100,
+      "options README render"
+    );
 
-    console.log("=======================================================================");
-    console.log(`TOTAL TESTS: ${passed + failed} | PASSED: ${passed} | FAILED: ${failed}`);
+    assert.equal(optionsContent.h1, "Canvas for ChatGPT");
+    assert.ok(optionsContent.h2s.includes("Features"));
+    assert.ok(optionsContent.h2s.includes("Privacy & Permissions"));
+    console.log("  ✓ Options page README rendering verified");
 
-    ws.close();
-    proc.kill();
-    server.close();
-
-    if (failed > 0) {
-      process.exit(1);
-    } else {
-      process.exit(0);
-    }
-  } catch (err) {
-    console.error("Test execution failed:", err);
-    proc.kill();
-    server.close();
-    process.exit(1);
+    console.log("\nALL BROWSER TESTS PASSED (10/10).");
+  } finally {
+    await cleanup();
   }
+}
+
+runTests().catch((err) => {
+  console.error("\nBROWSER TEST FAILED:\n", err);
+  process.exit(1);
 });

@@ -1,8 +1,8 @@
 {
   "name": "canvas-for-chatgpt",
   "displayName": "Canvas for ChatGPT",
-  "version": "2.1.0",
-  "description": "Transform ChatGPT into your personal canvas with per-chat wallpapers, custom backgrounds, video backdrops, frosted-glass sidebar, blur effects, and local media upload.",
+  "version": "3.0.0",
+  "description": "Transform ChatGPT into your personal canvas with zero-lag rendering, per-chat wallpapers, bundled presets, local media uploads, custom URLs, and real-time visual controls.",
   "author": "AryanTechie-007",
   "homepage": "https://github.com/AryanTechie-007/Canvas-For-ChatGPT",
   "repository": {
@@ -17,6 +17,7 @@
     "dev": "plasmo dev",
     "build": "plasmo build",
     "package": "plasmo package",
+    "typecheck": "tsc --noEmit",
     "test": "node test/run-browser-tests.js"
   },
   "dependencies": {
@@ -37,7 +38,7 @@
     "typescript": "5.3.3"
   },
   "manifest": {
-    "version_name": "v2.1",
+    "version_name": "v3.0",
     "permissions": [
       "storage",
       "unlimitedStorage"

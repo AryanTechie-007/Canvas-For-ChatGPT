@@ -4,116 +4,82 @@
 
 # Canvas for ChatGPT
 
-Canvas for ChatGPT transforms your ChatGPT interface into a personalized, focused workspace. Customize your chat backdrop with rich imagery, animated GIFs, or looping videos, assign **unique wallpapers to individual ChatGPT chats**, fine-tune blur and opacity, and harmonize seamlessly with light and dark mode.
+Transform [ChatGPT](https://chatgpt.com/) into a calm, ultra-responsive workspace with zero-lag rendering, per-chat wallpapers, bundled offline presets, local image/GIF/video uploads, custom web URLs, and real-time visual controls.
 
 ---
 
-## ✨ Features
+## Features
 
-- **Per-Chat Wallpapers (New in `v.2.0`)**
-  - **Separate Canvas per Conversation**: Give each ChatGPT chat (`/c/...`, Custom GPT `/g/...`, or shared link `/share/...`) its own dedicated wallpaper and visual settings (opacity, blur, and gradient).
-  - **Global Default Fallback**: Any new chat or conversation without a custom override automatically uses your **Global Default** wallpaper.
-  - **Built-in Manager**: View all chats that have custom wallpapers in the popup, switch between **This Chat** and **Global Default**, or click **Reset to Default** / **Clear All** at any time.
-- **Personalized Canvas Backdrops**
-  - **Curated Presets**: Quick-select high-definition presets (`Mountain`, `Space`, `Forest`, `Dog Dance`).
-  - **Upload Local Media**: Directly upload images, animated GIFs, or looping videos (`MP4`, `WEBM`, `OGG`, `MOV`) from your device.
-  - **Custom Web URLs**: Paste any web image, GIF, or video link.
-  - **Visual Customization**: Real-time slider controls for backdrop opacity, Gaussian blur radius, and dark/light overlay gradients.
-  - **Theme-Aware Engine & Frosted Sidebar (`v2.1`)**: Harmonizes automatically with ChatGPT light and dark modes with deep DOM transparency, clean rounded prompt styling, and a unified frosted-glass sidebar (desktop slide-over & mobile popover) without opaque slabs or header seams.
-
-- **Privacy & Security**
-  - Operates completely client-side in your browser.
-  - Zero telemetry, analytics, or external server calls.
-  - Settings and per-chat mappings are preserved solely in `chrome.storage.local`.
+- **Zero-Lag CSS-First Engine (`v3.0`)**: Rebuilt from the ground up modeled after [Canvas for Claude](https://github.com/AryanTechie-007/Canvas-for-Claude). Eliminates `getComputedStyle` and `getBoundingClientRect` DOM walks, attribute-thrashing observers, and heavy `:has()` layout scans during ChatGPT streaming and typing.
+- **Per-Chat & Route-Aware Wallpapers**: Assign unique wallpapers and visual tuning to individual conversations (`/c/<id>`, `/g/<gpt-id>/c/<id>`), Custom GPTs (`/g/<gpt-id>`), and shared links (`/share/<id>`), or fall back to a **Global Default** on Home (`/`) and uncustomized chats.
+- **Bundled Offline Presets**: Four built-in client-side wallpapers ready instantaneously with zero network delay — *Twilight Peaks*, *Cosmic Nebula*, *Misty Pines*, and *Northern Aurora (Animated GIF)*.
+- **Local Media Uploads**: Upload static images, animated GIFs, or looping videos (`MP4`, `WEBM`, `OGG`, `MOV`) directly from your computer. Files are converted locally to data URLs and persisted in extension storage.
+- **Custom Web URLs & Saved Library**: Paste any direct image or video URL, apply it immediately, and manage your saved library with live thumbnail previews.
+- **Real-Time Visual Controls**:
+  - **Image Opacity** (`0` to `1`)
+  - **Image Blur** (`0px` to `100px`)
+  - **Gradient Opacity** (`0` to `1`)
+- **Theme-Aware ChatGPT Integration**: Automatically adapts to ChatGPT's dark and light modes, provides a unified frosted-glass sidebar (`#stage-slideover-sidebar` & `#stage-popover-sidebar`), keeps the prompt composer as a clean rounded pill without rectangular outer boxes, and protects dialogs and menus.
+- **SPA & DOM Resilience**: Detects client-side route transitions (`pushState`, `replaceState`, `popstate`, Navigation API) and recovers automatically from React DOM updates via `MutationObserver`.
+- **Per-Chat Wallpapers Manager**: View every customized chat by readable title and route key, reset individual chats (`✕`), reset the active chat to default, or clear all overrides at once.
 
 ---
 
-## 🎯 How to Use Per-Chat Wallpapers
+## Privacy & Permissions
 
-1. Open [ChatGPT](https://chatgpt.com) and navigate into any conversation (URL containing `/c/<chat-id>` or `/g/<gpt-id>`).
-2. Click the **Canvas for ChatGPT** extension icon in your browser toolbar.
-3. Ensure the **This Chat** tab is selected at the top of the popup.
-4. Pick a preset, upload local media, or paste a web URL—and optionally fine-tune **Image opacity**, **Image blur**, and **Gradient opacity** just for that chat.
-5. Switch to another ChatGPT conversation and repeat to assign a different wallpaper. Navigating between chats swaps the wallpaper automatically.
-6. Switch the popup tab to **Global Default** anytime to edit the fallback wallpaper used on the home screen (`/`) and any chat without a custom override, or click **Reset to Default** / **✕** in the **Per-Chat Wallpapers** list to revert a chat back to default.
+**Canvas for ChatGPT runs 100% client-side.**
+
+- Zero telemetry, zero analytics, and zero external backend API calls.
+- All preferences, saved backgrounds, uploaded media data URLs, and per-chat mappings are stored locally in `chrome.storage.local` (backed by `@plasmohq/storage` with a direct `chrome.storage.local` fallback, preserving existing `chatgpt-custom-bg:cfg` data across upgrades).
+- **Manifest permissions**:
+  - `storage`: Stores settings and per-chat wallpaper mappings locally.
+  - `unlimitedStorage`: Allows storing large uploaded wallpapers, GIFs, and looping videos without hitting the standard 10 MB local quota.
+  - Host permissions `https://chatgpt.com/*` and `https://chat.openai.com/*`: Injects the content script (`document_idle`) exclusively on ChatGPT.
 
 ---
 
-## 🚀 Browser Installation Guide
+## Browser Installation Guide
 
-Download the latest **`canvas-for-chatgpt-v2.1.zip`** from [GitHub Releases](https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases) and **extract the ZIP** into a permanent folder on your computer (for example, `Documents/Canvas-For-ChatGPT`).
+Download the latest **`canvas-for-chatgpt-v3.0.zip`** from [GitHub Releases](https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases) and **extract the ZIP** into a permanent folder on your computer (for example, `Documents/Canvas-For-ChatGPT`).
 
-> **Note:** Do not delete the extracted folder after installing—your browser loads the extension from that folder. If you instead clone the source repo, run `npm install && npm run build` first and select `build/chrome-mv3-prod`.
+> **Note:** Do not delete the extracted folder after installing—your browser loads the extension from that folder. If you build from source, run `npm install && npm run build` first and select `build/chrome-mv3-prod`.
 
-### Google Chrome
-1. Open `chrome://extensions` in the address bar.
-2. Turn on **Developer mode** (toggle in the top-right corner).
-3. Click **Load unpacked** (top-left).
-4. Select the extracted folder (the folder containing `manifest.json`).
-5. Pin **Canvas for ChatGPT** from the puzzle-piece Extensions icon in the toolbar and refresh [chatgpt.com](https://chatgpt.com).
+### Google Chrome / Brave / Edge / Opera / Vivaldi / Arc
 
-### Brave
-1. Open `brave://extensions` in the address bar.
-2. Enable **Developer mode** (top-right toggle).
-3. Click **Load unpacked**.
-4. Select the extracted folder containing `manifest.json`.
-5. Pin **Canvas for ChatGPT** from the toolbar Extensions menu and refresh [chatgpt.com](https://chatgpt.com).
-
-### Microsoft Edge
-1. Open `edge://extensions` in the address bar.
-2. Enable **Developer mode** (toggle in the left sidebar or top-right).
-3. Click **Load unpacked**.
-4. Select the extracted folder containing `manifest.json`.
-5. Click the puzzle-piece Extensions icon to show it in the toolbar, then refresh [chatgpt.com](https://chatgpt.com).
-
-### Opera / Opera GX
-1. Open `opera://extensions` in the address bar.
-2. Turn on **Developer mode** (top-right switch).
-3. Click **Load unpacked**.
-4. Select the extracted folder containing `manifest.json`.
-5. Pin it via the Extensions cube icon in the top-right toolbar and refresh [chatgpt.com](https://chatgpt.com).
-
-### Vivaldi
-1. Open `vivaldi://extensions` in the address bar.
-2. Toggle **Developer mode** on (top-right).
-3. Click **Load unpacked**.
-4. Select the extracted folder containing `manifest.json`.
-5. Refresh [chatgpt.com](https://chatgpt.com) and click the extension icon in the address bar.
-
-### Arc (Chromium)
-1. Open `arc://extensions` (or `chrome://extensions`) in the command bar.
-2. Enable **Developer mode** (top-right).
-3. Click **Load unpacked** and choose the extracted folder containing `manifest.json`.
-4. Refresh [chatgpt.com](https://chatgpt.com) and open the extension from the top-right toolbar / Site Control menu.
+1. Open your browser's extensions page (`chrome://extensions`, `brave://extensions`, `edge://extensions`, `opera://extensions`, `vivaldi://extensions`, or `arc://extensions`).
+2. Enable **Developer mode** (top right).
+3. Click **Load unpacked** and select the extracted folder containing `manifest.json`.
+4. Open [chatgpt.com](https://chatgpt.com/) and click the **Canvas for ChatGPT** toolbar icon.
 
 ### Updating an Existing Installation
-When upgrading to a newer release (e.g. `v2.1`), extract the new release ZIP over your existing folder (or load the new folder) and click the **Reload** (`↻`) button on the **Canvas for ChatGPT** card on your browser's extensions page, then refresh ChatGPT.
 
-### Mozilla Firefox & Safari
-- The release ZIP is built for **Chromium Manifest V3** (`chrome-mv3`) browsers listed above and cannot be loaded directly in **Safari** or standard **Firefox**.
+Extract the new release ZIP over your existing extension folder, click **Reload** (`↻`) on the **Canvas for ChatGPT** card on your extensions page, and refresh ChatGPT.
 
 ---
 
-## 🛠️ Development
+## Development & Verification
 
 ### Prerequisites
 
 - Node.js 18 or later
 - npm or pnpm
 
-### Getting Started
+### Commands
 
 ```bash
 # Install dependencies
 npm install
 
-# Start development with live reload
+# Start Plasmo dev server with live reload
 npm run dev
+
+# Type-check TypeScript sources
+npm run typecheck
 
 # Build production bundle
 npm run build
 
-# Run comprehensive browser test suite
+# Run headless Chromium CDP verification & streaming lag benchmark suite
 npm test
 
 # Package extension zip
@@ -122,22 +88,19 @@ npm run package
 
 ### Architecture
 
-- `content.ts`: Main content script managing backdrop rendering, per-chat route resolution (`/c/...`, `/g/...`, `/share/...`), DOM mutation recovery, unified frosted-glass sidebar styling, and prompt composer styling.
-- `popup.tsx`: Toolbar popup UI with **This Chat** vs **Global Default** scope tabs, presets, local upload, custom URLs, visual sliders, and the **Per-Chat Wallpapers** manager.
-- `options.tsx`: Options and documentation viewer rendering `README.md`.
-- `test/run-browser-tests.js`: End-to-end CDP browser test suite validating background injection, per-chat wallpaper switching, unified desktop/mobile sidebar styling, composer wrapper transparency, DOM mutation recovery, and Manifest V3 compliance.
+- `content.ts`: Zero-lag content script managing backdrop injection, O(1) DOM recovery, one-time composer pill binding, SPA route transitions, and theme synchronization.
+- `lib/types.ts`: Shared TypeScript contracts for config, routes, and messages.
+- `lib/presets.ts`: Bundled offline WebP/GIF preset wallpapers.
+- `lib/media.ts`: Media validation, video detection, and local `FileReader` data URL conversion.
+- `lib/routing.ts`: ChatGPT route resolution (`/c/...`, `/g/.../c/...`, `/g/...`, `/share/...`, `/`) and DOM title extraction.
+- `lib/storage.ts`: Normalized configuration persistence via `@plasmohq/storage` and `chrome.storage.local`.
+- `lib/styles.ts`: Pure-CSS transparency, frosted sidebar, rounded composer pill, and dark/light gradient definitions.
+- `popup.tsx` & `popup.css`: Toolbar popup UI with **This Chat** vs **Global Default** scope tabs, presets, local upload, custom URLs, coalesced real-time sliders, and **Per-Chat Wallpapers** manager.
+- `options.tsx` & `options.css`: Options and documentation viewer rendering `README.md`.
+- `test/run-browser-tests.js`: End-to-end headless Chromium CDP suite validating Manifest V3 build compliance, extension popup + content integration, per-chat routing, frosted desktop/mobile sidebars, rounded composer transparency, streaming performance, and Options page rendering.
 
 ---
 
-## 🔒 Privacy
-
-Canvas for ChatGPT is built with user privacy as a foundational principle:
-- **Client-only execution**: Operates solely within browser tab contexts on `https://chatgpt.com/*` and `https://chat.openai.com/*`.
-- **No data harvesting**: No prompts, completions, telemetry, or user tokens are gathered, stored remotely, or transmitted.
-- **Local configuration**: Custom URLs, uploaded media, per-chat mappings, and styling preferences remain on your device in `chrome.storage.local`.
-
----
-
-## 📄 License
+## License
 
 Licensed under the MIT License. Copyright (c) 2026 AryanTechie-007.

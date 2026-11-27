@@ -1,1048 +1,791 @@
-// popup.tsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
-import React, { useEffect, useMemo, useState } from "react"
+import "./popup.css";
+import {
+  ACCEPTED_MEDIA_INPUT,
+  isAcceptedMediaFile,
+  isValidBackdropUrl,
+  isVideoUrl,
+  readFileAsDataUrl
+} from "./lib/media";
+import { PRESET_BACKDROPS } from "./lib/presets";
+import { formatChatLabel, resolveChatKeyFromUrl } from "./lib/routing";
+import {
+  DEFAULT_CONFIG,
+  loadConfig,
+  mergeConfigPartial,
+  resolveEffectiveVisuals,
+  updateConfigPartial,
+  watchConfig
+} from "./lib/storage";
+import type {
+  CanvasConfig,
+  ChatContext,
+  GetChatContextResponse,
+  GetConfigResponse
+} from "./lib/types";
 
-// ------------------------------
-// Tipos
-// ------------------------------
-type ChatCanvasCfg = {
-    backgroundImageUrl: string
-    title?: string
-    mainImageOpacity?: number
-    blurAmount?: number
-    gradientOpacity?: number
-    updatedAt?: number
+type ScopeMode = "chat" | "global";
+
+function sendTabMessage<T>(
+  tabId: number,
+  message: Record<string, unknown>
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      const err = chrome.runtime.lastError;
+      if (err) {
+        reject(new Error(err.message));
+        return;
+      }
+      resolve(response as T);
+    });
+  });
 }
 
-type Cfg = {
-    enabled: boolean
-    backgroundImageUrl: string
-    mainImageOpacity: number
-    blurAmount: number
-    gradientOpacity: number
-    savedBackgrounds: string[]
-    chatBackgrounds?: Record<string, ChatCanvasCfg>
+function queryActiveTab(): Promise<chrome.tabs.Tab | null> {
+  return new Promise((resolve) => {
+    if (!chrome.tabs?.query) {
+      resolve(null);
+      return;
+    }
+    const checkTabs = (selfTab?: chrome.tabs.Tab) => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const current = tabs?.[0] ?? null;
+        if (selfTab && current && current.id === selfTab.id) {
+          // Opened directly as a tab (e.g., debugging or browser tests): target most recent ChatGPT tab
+          chrome.tabs.query(
+            { url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] },
+            (chatTabs) => {
+              const sorted = [...(chatTabs || [])].sort(
+                (a, b) =>
+                  ((b as chrome.tabs.Tab & { lastAccessed?: number })
+                    .lastAccessed ?? 0) -
+                  ((a as chrome.tabs.Tab & { lastAccessed?: number })
+                    .lastAccessed ?? 0)
+              );
+              resolve(sorted[0] ?? current);
+            }
+          );
+          return;
+        }
+        resolve(current);
+      });
+    };
+
+    if (chrome.tabs.getCurrent) {
+      chrome.tabs.getCurrent((selfTab) => checkTabs(selfTab));
+    } else {
+      checkTabs(undefined);
+    }
+  });
 }
 
-type ChatContext = {
-    chatKey: string | null
-    chatTitle?: string
-}
-
-const DEFAULT_CFG: Cfg = {
-    enabled: true,
-    backgroundImageUrl: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80",
-    mainImageOpacity: 0.5,
-    blurAmount: 70,
-    gradientOpacity: 1.0,
-    savedBackgrounds: [],
-    chatBackgrounds: {}
-}
-
-function getChatKeyFromUrl(urlStr?: string): string | null {
-    if (!urlStr) return null
-    try {
-        const url = new URL(urlStr)
-        if (!/^https:\/\/(chatgpt\.com|chat\.openai\.com)$/i.test(url.origin)) return null
-        const convMatch = url.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/)
-        if (convMatch?.[1]) return `c:${convMatch[1]}`
-        const shareMatch = url.pathname.match(/\/share\/([a-zA-Z0-9_-]+)/)
-        if (shareMatch?.[1]) return `share:${shareMatch[1]}`
-        const gptMatch = url.pathname.match(/^\/g\/([a-zA-Z0-9_-]+)\/?$/)
-        if (gptMatch?.[1]) return `g:${gptMatch[1]}`
-    } catch {}
-    return null
-}
-
-function formatChatLabel(chatKey: string, title?: string): string {
-    if (title && title.trim()) return title.trim()
-    if (chatKey.startsWith("c:")) return `Chat ${chatKey.slice(2, 10)}…`
-    if (chatKey.startsWith("g:")) return `GPT ${chatKey.slice(2, 12)}…`
-    if (chatKey.startsWith("share:")) return `Shared ${chatKey.slice(6, 14)}…`
-    return chatKey
-}
-
-// ------------------------------
-// Utiles de mensajería
-// ------------------------------
-async function getActiveTab() {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    return tab
-}
-async function sendToActiveTab<T = any>(payload: any): Promise<T> {
-    const tab = await getActiveTab()
-    if (!tab?.id) throw new Error("No active tab")
-    return chrome.tabs.sendMessage(tab.id, payload)
-}
-
-// ------------------------------
-// Componentes UI
-// ------------------------------
-const IconToggle = () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-        <path d="M7 8a5 5 0 0 1 10 0h2a7 7 0 1 0 0 8h-2a5 5 0 1 1-10 0H5a7 7 0 1 0 0-8h2z" />
-    </svg>
-)
-
-const IconImage = () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-        <path d="M21 19V5a2 2 0 0 0-2-2H5C3.9 3 3 3.9 3 5v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2zM8.5 8A1.5 1.5 0 1 1 7 9.5 1.5 1.5 0 0 1 8.5 8zM5 19l5.5-7 3.5 4.5L16.5 14 21 19H5z" />
-    </svg>
-)
-
-const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div className="field">
-        <div className="label">{label}</div>
-        {children}
-    </div>
-)
-
-const Slider = ({
-    value,
-    min,
-    max,
-    step,
-    onChange,
-    readout
+function MediaPreview({
+  url,
+  className
 }: {
-    value: number
-    min: number
-    max: number
-    step: number
-    onChange: (v: number) => void
-    readout: string
-}) => (
-    <div className="slider-row">
-        <input
-            className="slider"
-            type="range"
-            min={min}
-            max={max}
-            step={step}
-            value={value}
-            onChange={(e) => onChange(Number(e.target.value))}
-        />
-        <div className="badge">{readout}</div>
-    </div>
-)
-
-const Switch = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) => (
-    <button
-        className={`switch ${checked ? "on" : ""}`}
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        title={checked ? "Disable" : "Enable"}
-    >
-        <span className="knob" />
-    </button>
-)
-
-// ------------------------------
-// Popup principal
-// ------------------------------
-const Popup = () => {
-    const [cfg, setCfg] = useState<Cfg | null>(null)
-    const [err, setErr] = useState<string | null>(null)
-    const [customUrl, setCustomUrl] = useState("")
-    const [chatContext, setChatContext] = useState<ChatContext>({ chatKey: null })
-    const [scope, setScope] = useState<"chat" | "global">("global")
-    const fileInputRef = React.useRef<HTMLInputElement | null>(null)
-
-    // 4 Fondos predeterminados solicitados: Mountain, Space, Forest, Dog Dance
-    const defaultPresets = [
-        { name: "Mountain", url: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80" },
-        { name: "Space", url: "https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1920&q=80" },
-        { name: "Forest", url: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&q=80" },
-        { name: "Dog Dance", url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExN3kycXV3MzR4cDV2OXFuZjh0dmZlazRmdWgwOWJ6N3N2aHl3bDJ1YSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/VzH4jP7ppWF8dgCxcg/giphy.gif" }
-    ]
-    const defaultUrls = defaultPresets.map(p => p.url)
-
-    const isVideoUrl = (url: string) =>
-        url.startsWith("data:video/") || /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url)
-
-    // Cargar configuración y contexto del chat activo
-    useEffect(() => {
-        let mounted = true
-        const initCfg = async () => {
-            let loaded: Cfg | null = null
-            try {
-                if (typeof chrome !== "undefined" && chrome.storage?.local) {
-                    const res = await chrome.storage.local.get("chatgpt-custom-bg:cfg")
-                    if (res?.["chatgpt-custom-bg:cfg"]) {
-                        loaded = res["chatgpt-custom-bg:cfg"]
-                    }
-                }
-            } catch (e) {}
-
-            let detectedCtx: ChatContext = { chatKey: null }
-            try {
-                const tab = await getActiveTab()
-                const fallbackKey = getChatKeyFromUrl(tab?.url)
-                if (fallbackKey) detectedCtx = { chatKey: fallbackKey }
-            } catch (e) {}
-
-            try {
-                const activeCtx = await sendToActiveTab<ChatContext>({ type: "GET_CHAT_CONTEXT" })
-                if (activeCtx && typeof activeCtx.chatKey !== "undefined") {
-                    detectedCtx = activeCtx
-                }
-            } catch (e) {
-                try {
-                    const activeCfg = await sendToActiveTab<Cfg>({ type: "GET_CFG" })
-                    if (activeCfg) loaded = activeCfg
-                } catch (e2) {}
-            }
-
-            if (mounted) {
-                setCfg({ ...DEFAULT_CFG, ...(loaded || {}) })
-                setChatContext(detectedCtx)
-                setScope(detectedCtx.chatKey ? "chat" : "global")
-            }
-        }
-
-        initCfg()
-        return () => { mounted = false }
-    }, [])
-
-    // Enviar parches en tiempo real y persistir directamente en chrome.storage.local
-    const patch = async (p: Partial<Cfg>) => {
-        if (!cfg) return
-        const next = { ...cfg, ...p }
-        setCfg(next)
-
-        // Persistir siempre en storage local
-        try {
-            if (typeof chrome !== "undefined" && chrome.storage?.local) {
-                await chrome.storage.local.set({ "chatgpt-custom-bg:cfg": next })
-            }
-        } catch (e) {}
-
-        // Enviar a pestaña activa si existe y responde
-        try {
-            await sendToActiveTab({ type: "SET_CFG_PARTIAL", patch: p })
-        } catch (e) {}
-    }
-
-    const activeChatKey = chatContext.chatKey
-    const isChatScope = scope === "chat" && !!activeChatKey
-    const activeChatOverride = activeChatKey ? cfg?.chatBackgrounds?.[activeChatKey] : undefined
-
-    const activeVisuals = useMemo(() => {
-        if (!cfg) {
-            return {
-                backgroundImageUrl: DEFAULT_CFG.backgroundImageUrl,
-                mainImageOpacity: DEFAULT_CFG.mainImageOpacity,
-                blurAmount: DEFAULT_CFG.blurAmount,
-                gradientOpacity: DEFAULT_CFG.gradientOpacity
-            }
-        }
-        if (isChatScope && activeChatOverride) {
-            return {
-                backgroundImageUrl: activeChatOverride.backgroundImageUrl ?? cfg.backgroundImageUrl,
-                mainImageOpacity: activeChatOverride.mainImageOpacity ?? cfg.mainImageOpacity,
-                blurAmount: activeChatOverride.blurAmount ?? cfg.blurAmount,
-                gradientOpacity: activeChatOverride.gradientOpacity ?? cfg.gradientOpacity
-            }
-        }
-        return {
-            backgroundImageUrl: cfg.backgroundImageUrl,
-            mainImageOpacity: cfg.mainImageOpacity,
-            blurAmount: cfg.blurAmount,
-            gradientOpacity: cfg.gradientOpacity
-        }
-    }, [cfg, isChatScope, activeChatOverride])
-
-    const updateScopedVisuals = async (
-        updates: Partial<Pick<Cfg, "backgroundImageUrl" | "mainImageOpacity" | "blurAmount" | "gradientOpacity">>,
-        extraSavedUrl?: string
-    ) => {
-        if (!cfg) return
-        let nextSavedBackgrounds = cfg.savedBackgrounds || []
-        if (extraSavedUrl && !nextSavedBackgrounds.includes(extraSavedUrl) && !defaultUrls.includes(extraSavedUrl)) {
-            nextSavedBackgrounds = [extraSavedUrl, ...nextSavedBackgrounds].slice(0, 50)
-        }
-
-        if (isChatScope && activeChatKey) {
-            const existing = cfg.chatBackgrounds?.[activeChatKey]
-            const nextChatEntry: ChatCanvasCfg = {
-                backgroundImageUrl: updates.backgroundImageUrl ?? existing?.backgroundImageUrl ?? cfg.backgroundImageUrl,
-                mainImageOpacity: updates.mainImageOpacity ?? existing?.mainImageOpacity ?? cfg.mainImageOpacity,
-                blurAmount: updates.blurAmount ?? existing?.blurAmount ?? cfg.blurAmount,
-                gradientOpacity: updates.gradientOpacity ?? existing?.gradientOpacity ?? cfg.gradientOpacity,
-                title: chatContext.chatTitle || existing?.title,
-                updatedAt: Date.now()
-            }
-            const nextChatBackgrounds = {
-                ...(cfg.chatBackgrounds || {}),
-                [activeChatKey]: nextChatEntry
-            }
-            await patch({
-                chatBackgrounds: nextChatBackgrounds,
-                ...(nextSavedBackgrounds !== cfg.savedBackgrounds ? { savedBackgrounds: nextSavedBackgrounds } : {})
-            })
-        } else {
-            await patch({
-                ...updates,
-                ...(nextSavedBackgrounds !== cfg.savedBackgrounds ? { savedBackgrounds: nextSavedBackgrounds } : {})
-            })
-        }
-    }
-
-    const selectBackground = async (url: string) => {
-        await updateScopedVisuals({ backgroundImageUrl: url }, url)
-    }
-
-    const removeCustomBackground = async (url: string) => {
-        if (!cfg) return
-        const savedBackgrounds = (cfg.savedBackgrounds || []).filter(bg => bg !== url)
-        await patch({ savedBackgrounds })
-    }
-
-    const resetChatBackground = async (chatKey: string) => {
-        if (!cfg?.chatBackgrounds?.[chatKey]) return
-        const nextChatBackgrounds = { ...cfg.chatBackgrounds }
-        delete nextChatBackgrounds[chatKey]
-        await patch({ chatBackgrounds: nextChatBackgrounds })
-    }
-
-    const clearAllChatBackgrounds = async () => {
-        if (!cfg) return
-        await patch({ chatBackgrounds: {} })
-    }
-
-    const handleCustomUrlSubmit = async () => {
-        if (customUrl.trim()) {
-            await selectBackground(customUrl.trim())
-            setCustomUrl("")
-        }
-    }
-
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-
-        if (file.size > 50 * 1024 * 1024) {
-            alert("File is larger than 50MB. Please select a smaller file for smooth performance.")
-            return
-        }
-
-        const reader = new FileReader()
-        reader.onload = async () => {
-            const dataUrl = reader.result as string
-            if (dataUrl) {
-                await selectBackground(dataUrl)
-            }
-        }
-        reader.readAsDataURL(file)
-        e.target.value = ""
-    }
-
-    // Previsualización pequeña del fondo (solo URL, sin leer de la página)
-    const previewStyle = useMemo(
-        () => ({
-            backgroundImage: activeVisuals.backgroundImageUrl && !isVideoUrl(activeVisuals.backgroundImageUrl)
-                ? `url("${activeVisuals.backgroundImageUrl}")`
-                : "none",
-            filter: `blur(${(activeVisuals.blurAmount ?? 0) / 4}px)`,
-            opacity: activeVisuals.mainImageOpacity ?? 1
-        }),
-        [activeVisuals.backgroundImageUrl, activeVisuals.mainImageOpacity, activeVisuals.blurAmount]
-    )
-
-    if (err) return <Shell><div className="error">{err}</div></Shell>
-    if (!cfg) return <Shell><div className="loading">Loading…</div></Shell>
-
-    const activeIsVideo = activeVisuals.backgroundImageUrl && isVideoUrl(activeVisuals.backgroundImageUrl)
-    const chatEntries = Object.entries(cfg.chatBackgrounds || {}).sort(
-        (a, b) => (b[1]?.updatedAt ?? 0) - (a[1]?.updatedAt ?? 0)
-    )
-
+  url: string;
+  className: string;
+}) {
+  if (isVideoUrl(url)) {
     return (
-        <Shell>
-            {/* Header con gradiente y preview */}
-            <header className="header">
-                <div className="title">
-                    <IconToggle />
-                    <span>Canvas for ChatGPT</span>
-                </div>
-                <div className="actions">
-                    <Switch checked={!!cfg.enabled} onChange={(v) => patch({ enabled: v })} />
-                </div>
-            </header>
-
-            <div className="preview" style={previewStyle as React.CSSProperties}>
-                {activeIsVideo ? (
-                    <video
-                        src={activeVisuals.backgroundImageUrl}
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                    />
-                ) : !activeVisuals.backgroundImageUrl ? (
-                    <span className="preview-hint">No media selected</span>
-                ) : null}
-            </div>
-
-            {/* Selector de alcance: Chat actual vs Predeterminado global */}
-            <section className="card scope-card">
-                <div className="scope-tabs" role="tablist" aria-label="Wallpaper Scope">
-                    <button
-                        type="button"
-                        role="tab"
-                        aria-selected={isChatScope}
-                        disabled={!activeChatKey}
-                        className={`scope-tab ${isChatScope ? "active" : ""}`}
-                        onClick={() => activeChatKey && setScope("chat")}
-                        title={activeChatKey ? "Apply wallpaper only to this ChatGPT chat" : "Open a specific chat (/c/...) to set a per-chat wallpaper"}
-                    >
-                        This Chat
-                    </button>
-                    <button
-                        type="button"
-                        role="tab"
-                        aria-selected={!isChatScope}
-                        className={`scope-tab ${!isChatScope ? "active" : ""}`}
-                        onClick={() => setScope("global")}
-                    >
-                        Global Default
-                    </button>
-                </div>
-                <div className="scope-meta">
-                    {activeChatKey ? (
-                        <>
-                            <span className="scope-name" title={activeChatKey}>
-                                {isChatScope ? formatChatLabel(activeChatKey, chatContext.chatTitle || activeChatOverride?.title) : "All chats without a custom wallpaper"}
-                            </span>
-                            {isChatScope && (
-                                activeChatOverride ? (
-                                    <button
-                                        type="button"
-                                        className="reset-chip"
-                                        onClick={() => resetChatBackground(activeChatKey)}
-                                        title="Remove per-chat wallpaper and use Global Default"
-                                    >
-                                        Reset to Default
-                                    </button>
-                                ) : (
-                                    <span className="status-chip">Using Default</span>
-                                )
-                            )}
-                        </>
-                    ) : (
-                        <span className="scope-name">Open a specific chat (/c/...) to set a per-chat wallpaper</span>
-                    )}
-                </div>
-            </section>
-
-            {/* Tarjeta: Media / Fondos */}
-            <section className="card">
-                <div className="card-head">
-                    <IconImage />
-                    <h4>{isChatScope ? "This Chat Wallpaper" : "Default Background Canvas"}</h4>
-                </div>
-                
-                {/* Presets: Mountain, Space, Forest, Dog Dance */}
-                <Field label="Presets (Mountain, Space, Forest, Dog Dance)">
-                    <div className="background-gallery">
-                        {defaultPresets.map((preset) => {
-                            const isSelected = activeVisuals.backgroundImageUrl === preset.url
-                            return (
-                                <div 
-                                    key={preset.url}
-                                    className={`background-item ${isSelected ? 'selected' : ''}`}
-                                    onClick={() => selectBackground(preset.url)}
-                                    style={{ backgroundImage: `url("${preset.url}")` }}
-                                >
-                                    {isSelected && (
-                                        <div className="selected-indicator">✓</div>
-                                    )}
-                                    <div className="background-label">
-                                        {preset.name}
-                                    </div>
-                                </div>
-                            )
-                        })}
-                    </div>
-                </Field>
-
-                {/* Subir archivo local (imagen, GIF, video) */}
-                <Field label="Upload Media (Image, GIF, Video)">
-                    <div className="upload-row">
-                        <input
-                            type="file"
-                            ref={fileInputRef}
-                            style={{ display: "none" }}
-                            accept="image/*,video/*"
-                            onChange={handleFileUpload}
-                        />
-                        <button
-                            type="button"
-                            className="upload-btn"
-                            onClick={() => fileInputRef.current?.click()}
-                            title="Upload local image, GIF, or video from your device"
-                        >
-                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                <polyline points="17 8 12 3 7 8" />
-                                <line x1="12" y1="3" x2="12" y2="15" />
-                            </svg>
-                            <span>Upload Image / GIF / Video</span>
-                        </button>
-                    </div>
-                </Field>
-
-                {/* Galería de fondos subidos y guardados */}
-                {(cfg.savedBackgrounds && cfg.savedBackgrounds.length > 0) && (
-                    <Field label="Uploaded & Saved Media">
-                        <div className="background-gallery">
-                            {cfg.savedBackgrounds.map((url, index) => {
-                                const isSelected = activeVisuals.backgroundImageUrl === url
-                                const isVideo = isVideoUrl(url)
-                                return (
-                                    <div 
-                                        key={url}
-                                        className={`background-item ${isSelected ? 'selected' : ''}`}
-                                        onClick={() => selectBackground(url)}
-                                        style={!isVideo ? { backgroundImage: `url("${url}")` } : undefined}
-                                    >
-                                        {isVideo && (
-                                            <video
-                                                src={url}
-                                                muted
-                                                style={{ width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none" }}
-                                            />
-                                        )}
-                                        {isSelected && (
-                                            <div className="selected-indicator">✓</div>
-                                        )}
-                                        <button
-                                            className="remove-btn"
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                removeCustomBackground(url)
-                                            }}
-                                            title="Remove media"
-                                        >
-                                            ✕
-                                        </button>
-                                        <div className="background-label">
-                                            {isVideo ? `Video #${index + 1}` : `Media #${index + 1}`}
-                                        </div>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    </Field>
-                )}
-
-                {/* Input para URL personalizada */}
-                <Field label="Add Web URL (Image, GIF, Video)">
-                    <div className="custom-url-input">
-                        <div className="input-icon">
-                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
-                                <path d="M3.9 12a5 5 0 0 1 5-5h3v2h-3a3 3 0 0 0 0 6h3v2h-3a5 5 0 0 1-5-5Zm7.2 1h1.8v-2h-1.8v2Zm3-6h3a5 5 0 0 1 0 10h-3v-2h3a3 3 0 0 0 0-6h-3V7Z" />
-                            </svg>
-                            <input
-                                placeholder="https://example.com/media.mp4 or .jpg"
-                                value={customUrl}
-                                onChange={(e) => setCustomUrl(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleCustomUrlSubmit()}
-                            />
-                        </div>
-                        <button 
-                            className="add-btn"
-                            onClick={handleCustomUrlSubmit}
-                            disabled={!customUrl.trim()}
-                            title="Add and use this media URL"
-                        >
-                            Add
-                        </button>
-                    </div>
-                </Field>
-            </section>
-
-            {/* Tarjeta: Ajustes visuales */}
-            <section className="card">
-                <div className="card-head">
-                    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-                        <path d="M12 3a2 2 0 0 1 2 2v1.1a7.02 7.02 0 0 1 2.05.85l.78-.78a2 2 0 1 1 2.83 2.83l-.78.78c.36.65.63 1.34.79 2.06H21a2 2 0 1 1 0 4h-1.1a7.02 7.02 0 0 1-.85 2.05l.78.78a2 2 0 1 1-2.83 2.83l-.78-.78c-.65.36-1.34.63-2.06.79V19a2 2 0 1 1-4 0v-1.1a7.02 7.02 0 0 1-2.05-.85l-.78.78a2 2 0 1 1-2.83-2.83l.78-.78A7 7 0 0 1 4.1 13H3a2 2 0 1 1 0-4h1.1a7.02 7.02 0 0 1 .85-2.05l-.78-.78a2 2 0 1 1 2.83-2.83l.78.78c.65-.36 1.34-.63 2.06-.79V5a2 2 0 0 1 2-2Z" />
-                    </svg>
-                    <h4>{isChatScope ? "This Chat Visual Settings" : "Visual Settings"}</h4>
-                </div>
-
-                <Field label={`Image opacity: ${Math.round(activeVisuals.mainImageOpacity * 100)}%`}>
-                    <Slider
-                        value={activeVisuals.mainImageOpacity}
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        onChange={(v) => updateScopedVisuals({ mainImageOpacity: v })}
-                        readout={`${Math.round(activeVisuals.mainImageOpacity * 100)}%`}
-                    />
-                </Field>
-
-                <Field label={`Image blur: ${activeVisuals.blurAmount}px`}>
-                    <Slider
-                        value={activeVisuals.blurAmount}
-                        min={0}
-                        max={100}
-                        step={1}
-                        onChange={(v) => updateScopedVisuals({ blurAmount: v })}
-                        readout={`${activeVisuals.blurAmount}px`}
-                    />
-                </Field>
-
-                <Field label={`Gradient opacity: ${Math.round(activeVisuals.gradientOpacity * 100)}%`}>
-                    <Slider
-                        value={activeVisuals.gradientOpacity}
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        onChange={(v) => updateScopedVisuals({ gradientOpacity: v })}
-                        readout={`${Math.round(activeVisuals.gradientOpacity * 100)}%`}
-                    />
-                </Field>
-            </section>
-
-            {/* Tarjeta: Fondos por chat guardados */}
-            {chatEntries.length > 0 && (
-                <section className="card">
-                    <div className="card-head card-head-between">
-                        <div className="card-head-left">
-                            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-                                <path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2Z" />
-                            </svg>
-                            <h4>Per-Chat Wallpapers ({chatEntries.length})</h4>
-                        </div>
-                        {chatEntries.length > 1 && (
-                            <button
-                                type="button"
-                                className="clear-all-btn"
-                                onClick={clearAllChatBackgrounds}
-                                title="Reset all per-chat wallpapers to Global Default"
-                            >
-                                Clear All
-                            </button>
-                        )}
-                    </div>
-                    <div className="chat-list">
-                        {chatEntries.map(([chatKey, entry]) => {
-                            const isCurrent = chatKey === activeChatKey
-                            const isVideo = entry.backgroundImageUrl && isVideoUrl(entry.backgroundImageUrl)
-                            return (
-                                <div
-                                    key={chatKey}
-                                    className={`chat-row ${isCurrent ? "current" : ""}`}
-                                    onClick={() => isCurrent && setScope("chat")}
-                                    title={chatKey}
-                                >
-                                    <div
-                                        className="chat-thumb"
-                                        style={!isVideo && entry.backgroundImageUrl ? { backgroundImage: `url("${entry.backgroundImageUrl}")` } : undefined}
-                                    >
-                                        {isVideo && (
-                                            <video
-                                                src={entry.backgroundImageUrl}
-                                                muted
-                                                style={{ width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none" }}
-                                            />
-                                        )}
-                                    </div>
-                                    <div className="chat-info">
-                                        <span className="chat-title">{formatChatLabel(chatKey, entry.title)}</span>
-                                        {isCurrent && <span className="current-badge">Active</span>}
-                                    </div>
-                                    <button
-                                        type="button"
-                                        className="chat-remove-btn"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            resetChatBackground(chatKey)
-                                        }}
-                                        title="Reset this chat to Global Default"
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            )
-                        })}
-                    </div>
-                </section>
-            )}
-
-
-
-            <footer className="footer">
-                <span className="hint">Changes apply instantly on chatgpt.com</span>
-            </footer>
-
-            {/* Estilos inline para mantener el archivo autocontenido */}
-            <style>
-                {css}
-            </style>
-        </Shell>
-    )
-}
-
-// ------------------------------
-// Contenedor con fondo adaptable
-// ------------------------------
-const Shell = ({ children }: { children: React.ReactNode }) => (
-    <div className="shell">
-        {children}
-        <style>{shellCss}</style>
-    </div>
-)
-
-// ------------------------------
-// CSS (sin librerías). Tema claro/oscuro con prefers-color-scheme.
-// ------------------------------
-const shellCss = `
-:root{
-  --bg: #0f1115;
-  --panel: #161922;
-  --muted: #8b93a7;
-  --text: #e7eaf3;
-  --accent: #5b8cff;
-  --accent-2: #7f56ff;
-  --border: #262a36;
-  --ok: #22c55e;
-}
-
-/* ensure dark bg + no default body margin as early as possible */
-html, body {
-  background: var(--bg);
-  margin: 0;
-  color: var(--text);
-}
-
-/* hint the UA we're dark to avoid white UI flashes */
-:root { color-scheme: dark; }
-
-@media (prefers-color-scheme: light){
-  :root{
-    --bg: #f6f7fb;
-    --panel: #ffffff;
-    --muted: #667084;
-    --text: #101828;
-    --accent: #1a73e8;
-    --accent-2: #6f3aff;
-    --border: #e5e7ef;
-    --ok: #16a34a;
+      <video
+        className={className}
+        src={url}
+        muted
+        loop
+        autoPlay
+        playsInline
+      />
+    );
   }
-}
-*{box-sizing:border-box}
-.shell{
-  min-width: 320px;
-  max-width: 360px;
-  color: var(--text);
-  background: var(--bg);
-  border-radius: 0;
-  overflow: hidden;
-}
-`
-
-const css = `
-body {
-  margin: 0 !important;
+  return <img className={className} src={url} alt="" />;
 }
 
-.shell {
-  border-radius: 0px;
-}
+export default function IndexPopup() {
+  const [cfg, setCfg] = useState<CanvasConfig>(DEFAULT_CONFIG);
+  const [activeTabId, setActiveTabId] = useState<number | null>(null);
+  const [chatContext, setChatContext] = useState<ChatContext | null>(null);
+  const [scope, setScope] = useState<ScopeMode>("global");
+  const [customUrl, setCustomUrl] = useState("");
+  const [statusMsg, setStatusMsg] = useState<{
+    text: string;
+    isError?: boolean;
+  } | null>(null);
 
-.header{
-  display:flex; align-items:center; justify-content:space-between;
-  padding:12px 14px;
-  background: linear-gradient(135deg, var(--panel), transparent 60%), radial-gradient(1200px 200px at -200px -200px, var(--accent-2) 0%, transparent 60%);
-  border-bottom: 1px solid var(--border);
-}
-.title{display:flex; align-items:center; gap:8px; font-weight:600}
-.title svg{fill:currentColor; opacity:.9}
-.actions{display:flex; align-items:center; gap:8px}
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingPartialRef = useRef<Partial<CanvasConfig> | null>(null);
+  const isFlushingRef = useRef(false);
+  const activeTabIdRef = useRef<number | null>(null);
+  const cfgRef = useRef<CanvasConfig>(DEFAULT_CONFIG);
+  cfgRef.current = cfg;
+  activeTabIdRef.current = activeTabId;
 
-.preview{
-  height: 82px;
-  background-color: #0b0c10;
-  background-size: cover;
-  background-position: center;
-  border-bottom: 1px solid var(--border);
-  position: relative;
-}
-.preview-hint{
-  position:absolute; inset:auto 8px 8px auto; font-size:11px; color:var(--muted)
-}
+  useEffect(() => {
+    let mounted = true;
 
-.card{
-  margin: 10px 10px 0;
-  padding: 12px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-.card-head{display:flex; align-items:center; gap:8px; margin-bottom:8px}
-.card-head svg{fill:currentColor; opacity:.9}
-.card h4{margin:0; font-size:13px; font-weight:700}
+    async function init() {
+      const initialCfg = await loadConfig();
+      if (!mounted) return;
+      setCfg(initialCfg);
 
-.field{margin-top:10px}
-.label{font-size:12px; color:var(--muted); margin-bottom:6px}
+      const tab = await queryActiveTab();
+      if (!mounted) return;
 
-.input-icon{
-  display:flex; align-items:center; gap:8px;
-  border:1px solid var(--border); padding:6px 8px; border-radius:8px;
-  background: rgba(0,0,0,.04);
-}
-.input-icon svg{fill:var(--muted)}
-.input-icon input{
-  width:100%; background:transparent; border:0; outline:none; color:var(--text);
-  font-size:13px;
-}
+      if (tab?.id != null) {
+        setActiveTabId(tab.id);
+        activeTabIdRef.current = tab.id;
+        try {
+          const ctxRes = await sendTabMessage<GetChatContextResponse>(tab.id, {
+            type: "GET_CHAT_CONTEXT"
+          });
+          const cfgRes = await sendTabMessage<GetConfigResponse>(tab.id, {
+            type: "GET_CFG"
+          });
+          if (!mounted) return;
 
-.slider-row{display:flex; align-items:center; gap:10px}
-.slider{flex:1; appearance:none; height:4px; border-radius:999px; background:linear-gradient(90deg, var(--accent), var(--accent-2))}
-.slider::-webkit-slider-thumb{
-  appearance:none; width:16px; height:16px; border-radius:50%;
-  background: var(--panel); border:2px solid var(--accent-2); box-shadow:0 0 0 2px rgba(0,0,0,.1);
-}
-.slider::-moz-range-thumb{
-  width:16px; height:16px; border-radius:50%;
-  background: var(--panel); border:2px solid var(--accent-2);
-}
-.badge{
-  min-width: 58px; text-align:center;
-  border:1px solid var(--border);
-  padding:4px 6px; border-radius:999px; font-size:12px; color:var(--muted);
-}
+          if (cfgRes?.ok && cfgRes.cfg) {
+            setCfg(cfgRes.cfg);
+          }
+          if (ctxRes?.ok) {
+            const ctx: ChatContext = ctxRes.context ?? {
+              url: ctxRes.url,
+              pathname: ctxRes.pathname,
+              chatKey: ctxRes.chatKey,
+              title: ctxRes.title,
+              routeType: ctxRes.routeType,
+              theme: ctxRes.theme
+            };
+            setChatContext(ctx);
+            setScope(ctx.chatKey ? "chat" : "global");
+            return;
+          }
+        } catch {
+          // Active tab may not be chatgpt.com or content script is not injected
+        }
+      }
 
-.switch{
-  position:relative; width:44px; height:24px; border-radius:999px;
-  background: #3a4153; border:1px solid var(--border);
-  display:inline-flex; align-items:center; padding:2px; cursor:pointer;
-}
-.switch.on{ background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
-.knob{
-  width:18px; height:18px; border-radius:50%;
-  background:#fff; transform:translateX(0); transition:transform .18s ease;
-}
-.switch.on .knob{ transform: translateX(20px); }
+      const url = tab?.url || "";
+      const fallbackRoute = resolveChatKeyFromUrl(url);
+      if (fallbackRoute.chatKey) {
+        setChatContext({
+          url,
+          pathname: fallbackRoute.pathname,
+          chatKey: fallbackRoute.chatKey,
+          title:
+            tab?.title
+              ?.replace(
+                /^(?:ChatGPT\s*[-|–—]\s*)|(?:\s*[-|–—]\s*ChatGPT\s*$)/gi,
+                ""
+              )
+              .trim() || null,
+          routeType: fallbackRoute.routeType,
+          theme: "dark"
+        });
+        setScope("chat");
+      } else {
+        setChatContext(null);
+        setScope("global");
+      }
+    }
 
-.footer{
-  padding: 10px 12px 12px; color:var(--muted); font-size:11.5px; text-align:center;
-}
-.error,.loading{padding:14px}
+    void init();
 
-.info-box{
-  display:flex; align-items:center; gap:8px; margin-top:10px;
-  padding:8px 10px; border-radius:8px; 
-  background:rgba(76, 158, 234, 0.08); border:1px solid rgba(76, 158, 234, 0.2);
-  font-size:12px; color:var(--muted);
-}
-.info-box svg{fill:rgba(76, 158, 234, 0.8)}
+    const unwatch = watchConfig((nextCfg) => {
+      if (mounted && !isFlushingRef.current && !pendingPartialRef.current) {
+        setCfg(nextCfg);
+      }
+    });
 
-.background-gallery{
-  display:grid; grid-template-columns:repeat(auto-fit, minmax(80px, 1fr)); gap:8px; margin-top:6px;
-}
-.background-item{
-  position: relative;
-  aspect-ratio:16/9;
-  border-radius:6px;
-  cursor:pointer;
-  background-size:cover;
-  background-position:center;
-  background-repeat:no-repeat;
-  border:2px solid transparent;
-  transition:all 0.2s ease;
-  overflow:hidden;
-  min-height:45px;
+    return () => {
+      mounted = false;
+      unwatch();
+    };
+  }, []);
 
-  /* prevent the image from painting under the transparent border (avoids a thin line) */
-  background-clip: padding-box;
-}
+  const currentChatKey = chatContext?.chatKey ?? null;
+  const effectiveScope: ScopeMode =
+    scope === "chat" && currentChatKey ? "chat" : "global";
 
-.background-item::after{
-  content:"";
-  position:absolute;
-  left:0; right:0; bottom:0;
-  /* adjust height to taste */
-  height:24px; /* e.g. clamp(50px, 40%, 80px) if tiles vary a lot */
-  background:linear-gradient(
-    to top,
-    rgba(0,0,0,1) 0%,
-    rgba(0,0,0,0.6) 40%,
-    rgba(0,0,0,0.3) 70%,
-    rgba(0,0,0,0) 100%
+  const activeVisuals = useMemo(() => {
+    if (effectiveScope === "chat" && currentChatKey) {
+      return resolveEffectiveVisuals(cfg, currentChatKey);
+    }
+    return {
+      backgroundImageUrl: cfg.backgroundImageUrl,
+      mainImageOpacity: cfg.mainImageOpacity,
+      blurAmount: cfg.blurAmount,
+      gradientOpacity: cfg.gradientOpacity,
+      hasOverride: Boolean(
+        currentChatKey && cfg.chatBackgrounds[currentChatKey]
+      ),
+      entry: null
+    };
+  }, [cfg, currentChatKey, effectiveScope]);
+
+  const currentChatHasOverride = Boolean(
+    currentChatKey && cfg.chatBackgrounds[currentChatKey]
   );
-  pointer-events:none;
-  z-index:1;
-}
 
+  async function flushPendingPartials() {
+    if (isFlushingRef.current) return;
+    isFlushingRef.current = true;
 
-.background-item:hover{
-  border-color:var(--accent); transform:scale(1.02);
-}
-.background-item.selected{
-  border-color:var(--accent-2); box-shadow:0 0 0 1px var(--accent-2);
-}
+    try {
+      while (pendingPartialRef.current) {
+        const partial = pendingPartialRef.current;
+        pendingPartialRef.current = null;
+        const tabId = activeTabIdRef.current;
+        let saved: CanvasConfig | null = null;
 
-.background-label{
-  position:absolute;
-  left:0; right:0; bottom:6px;
-  color:white;
-  font-size:10px;
-  text-align:center;
-  font-weight:500;
-  text-shadow:0 1px 2px rgba(0,0,0,0.8);
+        if (tabId != null) {
+          try {
+            const res = await sendTabMessage<GetConfigResponse>(tabId, {
+              type: "SET_CFG_PARTIAL",
+              payload: partial
+            });
+            if (res?.ok && res.cfg) {
+              saved = res.cfg;
+            }
+          } catch {
+            // Fall through to local storage write if content script isn't reachable
+          }
+        }
 
-  display:flex;
-  align-items:flex-end;
-  justify-content:center;
+        if (!saved) {
+          saved = await updateConfigPartial(partial);
+        }
 
-  padding:0 6px;
-  min-height:auto;
-  background:none;     /* ← gradient moved to ::after */
-  z-index:2;           /* above the overlay */
-}
+        if (!pendingPartialRef.current) {
+          cfgRef.current = saved;
+          setCfg(saved);
+        }
+      }
+    } catch {
+      // Keep popup responsive even if an individual flush fails
+    } finally {
+      isFlushingRef.current = false;
+      if (pendingPartialRef.current) {
+        void flushPendingPartials();
+      }
+    }
+  }
 
+  function commitPartial(partial: Partial<CanvasConfig>) {
+    const optimistic = mergeConfigPartial(cfgRef.current, partial);
+    cfgRef.current = optimistic;
+    setCfg(optimistic);
 
-.selected-indicator{
-  position:absolute; top:4px; right:4px;
-  width:16px; height:16px; border-radius:50%;
-  background:var(--accent-2); color:white; font-size:10px;
-  display:flex; align-items:center; justify-content:center;
-  font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.3);
-}
-.remove-btn{
-  position:absolute; top:2px; left:2px;
-  width:16px; height:16px; border-radius:50%;
-  background:rgba(255,0,0,0.8); color:white; border:none;
-  font-size:10px; cursor:pointer; display:flex;
-  align-items:center; justify-content:center;
-  opacity:0; transition:opacity 0.2s ease;
-}
-.background-item:hover .remove-btn{opacity:1}
-.remove-btn:hover{background:rgba(255,0,0,1)}
+    pendingPartialRef.current = pendingPartialRef.current
+      ? { ...pendingPartialRef.current, ...partial }
+      : partial;
 
-.upload-row{
-  display:flex; gap:8px; align-items:center;
-}
-.upload-btn{
-  width:100%; display:flex; align-items:center; justify-content:center; gap:8px;
-  padding:9px 14px; border:1px dashed var(--accent); border-radius:8px;
-  background:rgba(76, 158, 234, 0.08); color:var(--text); font-size:12.5px;
-  cursor:pointer; font-weight:600; transition:all 0.2s ease;
-}
-.upload-btn:hover{
-  background:rgba(76, 158, 234, 0.18); border-color:var(--accent-2);
-}
-.upload-btn svg{stroke:var(--accent)}
+    void flushPendingPartials();
+  }
 
-.custom-url-input{
-  display:flex; gap:8px; align-items:center;
-}
-.custom-url-input .input-icon{flex:1}
-.add-btn{
-  padding:6px 12px; border:1px solid var(--accent); border-radius:6px;
-  background:var(--accent); color:white; font-size:12px; cursor:pointer;
-  transition:all 0.2s ease; white-space:nowrap;
-}
-.add-btn:hover:not(:disabled){
-  background:var(--accent-2); border-color:var(--accent-2);
-}
-.add-btn:disabled{
-  opacity:0.5; cursor:not-allowed; background:var(--muted);
-  border-color:var(--muted);
-}
+  function applyWallpaperToActiveScope(
+    url: string,
+    extraSavedUrl?: string
+  ): void {
+    const latest = cfgRef.current;
+    const nextSaved = extraSavedUrl
+      ? [
+          extraSavedUrl,
+          ...latest.savedBackgrounds.filter((item) => item !== extraSavedUrl)
+        ]
+      : latest.savedBackgrounds;
 
-.scope-card{
-  padding: 10px 12px;
-}
-.scope-tabs{
-  display:grid; grid-template-columns:1fr 1fr; gap:6px;
-  padding:3px; border-radius:8px; background:rgba(0,0,0,0.16);
-  border:1px solid var(--border);
-}
-.scope-tab{
-  padding:6px 8px; border:none; border-radius:6px;
-  background:transparent; color:var(--muted);
-  font-size:12px; font-weight:600; cursor:pointer;
-  transition:all 0.15s ease;
-}
-.scope-tab.active{
-  background:linear-gradient(90deg, var(--accent), var(--accent-2));
-  color:#fff;
-}
-.scope-tab:disabled{
-  opacity:0.45; cursor:not-allowed;
-}
-.scope-meta{
-  display:flex; align-items:center; justify-content:space-between; gap:8px;
-  margin-top:8px; font-size:11.5px; color:var(--muted);
-}
-.scope-name{
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-.status-chip{
-  padding:2px 7px; border-radius:999px; font-size:10.5px;
-  border:1px solid var(--border); color:var(--muted); white-space:nowrap;
-}
-.reset-chip{
-  padding:2px 8px; border-radius:999px; font-size:10.5px; font-weight:600;
-  border:1px solid var(--accent); background:rgba(91,140,255,0.14);
-  color:var(--text); cursor:pointer; white-space:nowrap;
-}
-.reset-chip:hover{
-  background:var(--accent); color:#fff;
-}
-.card-head-between{
-  justify-content:space-between;
-}
-.card-head-left{
-  display:flex; align-items:center; gap:8px;
-}
-.clear-all-btn{
-  padding:2px 8px; border-radius:6px; border:1px solid var(--border);
-  background:transparent; color:var(--muted); font-size:11px; cursor:pointer;
-}
-.clear-all-btn:hover{
-  border-color:#ef4444; color:#ef4444;
-}
-.chat-list{
-  display:flex; flex-direction:column; gap:6px; max-height:140px; overflow-y:auto;
-}
-.chat-row{
-  display:flex; align-items:center; gap:8px; padding:5px 6px;
-  border:1px solid var(--border); border-radius:8px; cursor:pointer;
-  background:rgba(0,0,0,0.08);
-}
-.chat-row.current{
-  border-color:var(--accent-2);
-}
-.chat-thumb{
-  width:36px; height:22px; border-radius:4px; flex-shrink:0;
-  background-size:cover; background-position:center; background-color:#0b0c10;
-  overflow:hidden;
-}
-.chat-info{
-  flex:1; min-width:0; display:flex; align-items:center; gap:6px;
-}
-.chat-title{
-  font-size:11.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-.current-badge{
-  padding:1px 6px; border-radius:999px; font-size:10px;
-  background:var(--accent-2); color:#fff; flex-shrink:0;
-}
-.chat-remove-btn{
-  width:20px; height:20px; border:none; border-radius:5px;
-  background:transparent; color:var(--muted); cursor:pointer; font-size:11px;
-  display:flex; align-items:center; justify-content:center; flex-shrink:0;
-}
-.chat-remove-btn:hover{
-  background:rgba(239,68,68,0.18); color:#ef4444;
-}
-`
+    if (effectiveScope === "chat" && currentChatKey) {
+      const prevEntry = latest.chatBackgrounds[currentChatKey];
+      const visuals = resolveEffectiveVisuals(latest, currentChatKey);
+      commitPartial({
+        savedBackgrounds: nextSaved,
+        chatBackgrounds: {
+          ...latest.chatBackgrounds,
+          [currentChatKey]: {
+            backgroundImageUrl: url,
+            title: chatContext?.title ?? prevEntry?.title,
+            mainImageOpacity:
+              prevEntry?.mainImageOpacity ?? visuals.mainImageOpacity,
+            blurAmount: prevEntry?.blurAmount ?? visuals.blurAmount,
+            gradientOpacity:
+              prevEntry?.gradientOpacity ?? visuals.gradientOpacity,
+            updatedAt: Date.now()
+          }
+        }
+      });
+    } else {
+      commitPartial({
+        backgroundImageUrl: url,
+        savedBackgrounds: nextSaved
+      });
+    }
+  }
 
-export default Popup
+  function updateSliderInActiveScope(
+    field: "mainImageOpacity" | "blurAmount" | "gradientOpacity",
+    value: number
+  ) {
+    const latest = cfgRef.current;
+    if (effectiveScope === "chat" && currentChatKey) {
+      const prevEntry = latest.chatBackgrounds[currentChatKey];
+      const visuals = resolveEffectiveVisuals(latest, currentChatKey);
+      commitPartial({
+        chatBackgrounds: {
+          ...latest.chatBackgrounds,
+          [currentChatKey]: {
+            backgroundImageUrl:
+              prevEntry?.backgroundImageUrl ?? visuals.backgroundImageUrl,
+            title: chatContext?.title ?? prevEntry?.title,
+            mainImageOpacity:
+              field === "mainImageOpacity"
+                ? value
+                : prevEntry?.mainImageOpacity ?? visuals.mainImageOpacity,
+            blurAmount:
+              field === "blurAmount"
+                ? value
+                : prevEntry?.blurAmount ?? visuals.blurAmount,
+            gradientOpacity:
+              field === "gradientOpacity"
+                ? value
+                : prevEntry?.gradientOpacity ?? visuals.gradientOpacity,
+            updatedAt: Date.now()
+          }
+        }
+      });
+    } else {
+      commitPartial({ [field]: value } as Partial<CanvasConfig>);
+    }
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    if (!isAcceptedMediaFile(file)) {
+      setStatusMsg({
+        text: "Unsupported file. Choose an image, GIF, or MP4/WEBM/OGG/MOV video.",
+        isError: true
+      });
+      return;
+    }
+
+    try {
+      setStatusMsg({ text: `Importing ${file.name}...` });
+      const dataUrl = await readFileAsDataUrl(file);
+      applyWallpaperToActiveScope(dataUrl, dataUrl);
+      setStatusMsg({ text: `Applied & saved "${file.name}".` });
+    } catch (error) {
+      setStatusMsg({
+        text:
+          error instanceof Error
+            ? error.message
+            : "Could not read selected media file.",
+        isError: true
+      });
+    }
+  }
+
+  function handleApplyCustomUrl(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = customUrl.trim();
+    if (!isValidBackdropUrl(trimmed)) {
+      setStatusMsg({
+        text: "Enter a valid http(s)://, data:, or chrome-extension:// media URL.",
+        isError: true
+      });
+      return;
+    }
+
+    applyWallpaperToActiveScope(trimmed, trimmed);
+    setCustomUrl("");
+    setStatusMsg({ text: "Custom URL applied and saved." });
+  }
+
+  function handleDeleteSaved(urlToRemove: string) {
+    const nextSaved = cfgRef.current.savedBackgrounds.filter(
+      (item) => item !== urlToRemove
+    );
+    commitPartial({ savedBackgrounds: nextSaved });
+    setStatusMsg({ text: "Removed from saved backgrounds." });
+  }
+
+  function handleRemoveChatOverride(chatKey: string) {
+    const nextChatBackgrounds = { ...cfgRef.current.chatBackgrounds };
+    delete nextChatBackgrounds[chatKey];
+    commitPartial({ chatBackgrounds: nextChatBackgrounds });
+  }
+
+  function handleClearAllChats() {
+    commitPartial({ chatBackgrounds: {} });
+    setStatusMsg({ text: "Cleared all per-chat overrides." });
+  }
+
+  function handleOpenOptions() {
+    if (chrome.runtime?.openOptionsPage) {
+      chrome.runtime.openOptionsPage();
+      return;
+    }
+    window.open(chrome.runtime.getURL("options.html"), "_blank");
+  }
+
+  const chatEntries = useMemo(() => {
+    return Object.entries(cfg.chatBackgrounds).sort(
+      ([, a], [, b]) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)
+    );
+  }, [cfg.chatBackgrounds]);
+
+  return (
+    <div className="popup-shell">
+      <header className="popup-header">
+        <div className="brand-group">
+          <div className="brand-dot" aria-hidden="true">
+            C
+          </div>
+          <div className="brand-titles">
+            <h1 className="brand-title">Canvas for ChatGPT</h1>
+            <span className="brand-subtitle">
+              {cfg.enabled ? "Active on chatgpt.com" : "Paused"}
+            </span>
+          </div>
+        </div>
+
+        <div className="header-actions">
+          <button
+            type="button"
+            className="icon-link-btn"
+            data-testid="options-link"
+            onClick={handleOpenOptions}
+            title="Open help & documentation">
+            Help
+          </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={cfg.enabled}
+            aria-label={
+              cfg.enabled
+                ? "Disable Canvas for ChatGPT"
+                : "Enable Canvas for ChatGPT"
+            }
+            data-testid="enable-toggle"
+            className="switch-btn"
+            onClick={() => commitPartial({ enabled: !cfg.enabled })}>
+            <span className="switch-thumb" />
+          </button>
+        </div>
+      </header>
+
+      <div className="scope-tabs" role="tablist" aria-label="Wallpaper scope">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={effectiveScope === "chat"}
+          data-testid="scope-tab-chat"
+          className={`scope-tab ${effectiveScope === "chat" ? "active" : ""}`}
+          disabled={!currentChatKey}
+          onClick={() => setScope("chat")}>
+          This Chat
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={effectiveScope === "global"}
+          data-testid="scope-tab-global"
+          className={`scope-tab ${effectiveScope === "global" ? "active" : ""}`}
+          onClick={() => setScope("global")}>
+          Global Default
+        </button>
+      </div>
+
+      <div className="context-banner" data-testid="context-banner">
+        <span className="context-label">
+          {currentChatKey ? (
+            <>
+              Target:{" "}
+              <strong>{chatContext?.title || currentChatKey}</strong>
+            </>
+          ) : (
+            "Editing Global Default (open a ChatGPT chat to customize per-chat)"
+          )}
+        </span>
+        <span
+          className={`context-pill ${
+            effectiveScope === "chat" && currentChatHasOverride ? "custom" : ""
+          }`}>
+          {effectiveScope === "chat"
+            ? currentChatHasOverride
+              ? "Custom Chat"
+              : "Using Default"
+            : "Global"}
+        </span>
+      </div>
+
+      <section className="panel-section">
+        <div className="section-header">
+          <h2 className="section-title">Backdrop Picker</h2>
+          <span className="section-hint">
+            {effectiveScope === "chat" ? "Applies to this chat" : "Global fallback"}
+          </span>
+        </div>
+
+        <div className="preset-grid">
+          {PRESET_BACKDROPS.map((preset) => {
+            const isSelected = activeVisuals.backgroundImageUrl === preset.url;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                data-testid={`preset-${preset.id}`}
+                className={`preset-card ${isSelected ? "selected" : ""}`}
+                onClick={() => applyWallpaperToActiveScope(preset.url)}>
+                <img
+                  className="preset-thumb"
+                  src={preset.url}
+                  alt={preset.name}
+                />
+                <div className="preset-meta">
+                  <span>{preset.name}</span>
+                  {preset.kind === "gif" && (
+                    <span className="badge-gif">GIF</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="upload-row">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_MEDIA_INPUT}
+            data-testid="upload-media-input"
+            style={{ display: "none" }}
+            onChange={handleFileUpload}
+          />
+          <button
+            type="button"
+            className="btn btn-full"
+            data-testid="upload-media-btn"
+            onClick={() => fileInputRef.current?.click()}>
+            Upload Local Media (Image, GIF, MP4/WEBM/OGG/MOV)
+          </button>
+        </div>
+
+        <form className="url-form" onSubmit={handleApplyCustomUrl}>
+          <input
+            type="text"
+            className="url-input"
+            data-testid="custom-url-input"
+            placeholder="Custom Web URL (image, GIF, or video)..."
+            value={customUrl}
+            onChange={(e) => setCustomUrl(e.target.value)}
+          />
+          <button
+            type="submit"
+            className="btn btn-primary"
+            data-testid="custom-url-apply">
+            Apply
+          </button>
+        </form>
+
+        {statusMsg && (
+          <div
+            className={`status-msg ${statusMsg.isError ? "error" : ""}`}
+            data-testid="status-message">
+            {statusMsg.text}
+          </div>
+        )}
+
+        {cfg.savedBackgrounds.length > 0 && (
+          <>
+            <div className="section-header" style={{ marginTop: 4 }}>
+              <span className="section-title">Saved Backgrounds</span>
+              <span className="section-hint">
+                {cfg.savedBackgrounds.length} saved
+              </span>
+            </div>
+            <div className="saved-grid" data-testid="saved-backgrounds-list">
+              {cfg.savedBackgrounds.map((url, idx) => {
+                const isSelected = activeVisuals.backgroundImageUrl === url;
+                return (
+                  <div
+                    key={url}
+                    className={`saved-item ${isSelected ? "selected" : ""}`}
+                    data-testid={`saved-item-${idx}`}>
+                    <button
+                      type="button"
+                      className="saved-apply-btn"
+                      title="Apply saved background"
+                      onClick={() => applyWallpaperToActiveScope(url)}>
+                      <MediaPreview url={url} className="saved-media" />
+                    </button>
+                    <button
+                      type="button"
+                      className="saved-delete-btn"
+                      data-testid={`saved-delete-${idx}`}
+                      aria-label="Delete saved background"
+                      title="Delete saved background"
+                      onClick={() => handleDeleteSaved(url)}>
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </section>
+
+      <section className="panel-section">
+        <div className="section-header">
+          <h2 className="section-title">Visual Controls</h2>
+          <span className="section-hint">Real-time</span>
+        </div>
+
+        <label className="slider-row">
+          <div className="slider-meta">
+            <span>Image Opacity</span>
+            <span className="slider-value">
+              {activeVisuals.mainImageOpacity.toFixed(2)}
+            </span>
+          </div>
+          <input
+            type="range"
+            className="range-input"
+            data-testid="slider-opacity"
+            min={0}
+            max={1}
+            step={0.01}
+            value={activeVisuals.mainImageOpacity}
+            onChange={(e) =>
+              updateSliderInActiveScope(
+                "mainImageOpacity",
+                parseFloat(e.target.value)
+              )
+            }
+          />
+        </label>
+
+        <label className="slider-row">
+          <div className="slider-meta">
+            <span>Image Blur</span>
+            <span className="slider-value">{activeVisuals.blurAmount}px</span>
+          </div>
+          <input
+            type="range"
+            className="range-input"
+            data-testid="slider-blur"
+            min={0}
+            max={100}
+            step={1}
+            value={activeVisuals.blurAmount}
+            onChange={(e) =>
+              updateSliderInActiveScope("blurAmount", parseInt(e.target.value, 10))
+            }
+          />
+        </label>
+
+        <label className="slider-row">
+          <div className="slider-meta">
+            <span>Gradient Opacity</span>
+            <span className="slider-value">
+              {activeVisuals.gradientOpacity.toFixed(2)}
+            </span>
+          </div>
+          <input
+            type="range"
+            className="range-input"
+            data-testid="slider-gradient"
+            min={0}
+            max={1}
+            step={0.01}
+            value={activeVisuals.gradientOpacity}
+            onChange={(e) =>
+              updateSliderInActiveScope(
+                "gradientOpacity",
+                parseFloat(e.target.value)
+              )
+            }
+          />
+        </label>
+      </section>
+
+      <section className="panel-section">
+        <div className="section-header">
+          <h2 className="section-title">Per-Chat Wallpapers</h2>
+          <span className="section-hint">{chatEntries.length} custom</span>
+        </div>
+
+        <div className="manager-actions">
+          <button
+            type="button"
+            className="btn"
+            style={{ flex: 1 }}
+            data-testid="reset-this-chat-btn"
+            disabled={!currentChatKey || !currentChatHasOverride}
+            onClick={() => {
+              if (currentChatKey) {
+                handleRemoveChatOverride(currentChatKey);
+              }
+            }}>
+            Reset This Chat to Default
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            data-testid="clear-all-chats-btn"
+            disabled={chatEntries.length === 0}
+            onClick={handleClearAllChats}>
+            Clear All
+          </button>
+        </div>
+
+        {chatEntries.length === 0 ? (
+          <p className="empty-note">
+            No custom per-chat wallpapers yet. Select a backdrop while in{" "}
+            <strong>This Chat</strong> mode to pin one.
+          </p>
+        ) : (
+          <div className="chat-list" data-testid="per-chat-list">
+            {chatEntries.map(([key, entry]) => {
+              const isCurrent = key === currentChatKey;
+              return (
+                <div
+                  key={key}
+                  className={`chat-row ${isCurrent ? "current" : ""}`}
+                  data-testid={`chat-override-${key}`}>
+                  <MediaPreview
+                    url={entry.backgroundImageUrl}
+                    className="chat-thumb"
+                  />
+                  <div className="chat-info">
+                    <span className="chat-title">
+                      {formatChatLabel(key, entry)}
+                    </span>
+                    <span className="chat-key">{key}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="chat-remove-btn"
+                    data-testid={`remove-chat-${key}`}
+                    aria-label={`Remove custom wallpaper for ${formatChatLabel(
+                      key,
+                      entry
+                    )}`}
+                    title="Reset chat to Global Default"
+                    onClick={() => handleRemoveChatOverride(key)}>
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
