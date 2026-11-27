@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * End-to-end Chromium Manifest V3, CDP & zero-lag streaming verification suite
- * for Canvas for ChatGPT v3.0.
+ * for Canvas for ChatGPT v3.3.
  */
 
 const assert = require("node:assert/strict");
@@ -221,8 +221,6 @@ function buildMockChatGptHtml(
       <nav aria-label="Chat history">
         <a href="/c/chat-alpha" aria-current="${initialPath === "/c/chat-alpha" ? "page" : "false"}">Alpha Architecture Discussion</a>
         <a href="/c/chat-beta" aria-current="${initialPath === "/c/chat-beta" ? "page" : "false"}">Beta Shader Notes</a>
-        <a href="/g/g-demo">Custom GPT Helper</a>
-        <a href="/share/share-9">Shared Snippet</a>
       </nav>
     </aside>
     <main role="main" class="bg-token-bg-primary">
@@ -265,9 +263,8 @@ function verifyManifestV3Build() {
   assert.equal(manifest.manifest_version, 3, "manifest_version must be 3");
   assert.equal(manifest.name, "Canvas for ChatGPT");
   assert.equal(manifest.version, pkg.version);
-  assert.equal(manifest.version_name, "v3.2");
+  assert.equal(manifest.version_name, "v3.3");
 
-  // Chromium integer version parts check (1-4 dot-separated integers 0-65535)
   const versionParts = String(manifest.version || "").split(".");
   assert.ok(
     versionParts.length >= 1 &&
@@ -285,10 +282,6 @@ function verifyManifestV3Build() {
   assert.ok(
     manifest.permissions.includes("unlimitedStorage"),
     "Missing unlimitedStorage permission"
-  );
-  assert.ok(
-    manifest.permissions.includes("activeTab"),
-    "Missing activeTab permission"
   );
   assert.ok(
     manifest.host_permissions.includes("https://chatgpt.com/*"),
@@ -572,7 +565,7 @@ async function runTests() {
     );
 
     console.log(
-      "[4/10] Opening popup.html & testing scope auto-selection, presets, sliders, upload, video..."
+      "[4/10] Opening popup.html & verifying unified controls (no This Chat / Global Default), presets, sliders, sidebar frosting, upload, video..."
     );
     const { targetId: popupTargetId } = await cdp.send("Target.createTarget", {
       url: `chrome-extension://${extensionId}/popup.html`
@@ -586,31 +579,35 @@ async function runTests() {
     );
     await cdp.send("Runtime.enable", {}, popupSession);
 
-    const popupInit = await waitFor(
+    const popupReady = await waitFor(
       async () => {
         return cdp.evalInSession(
           popupSession,
           `(() => {
-            const tabChat = document.querySelector('[data-testid="scope-tab-chat"]');
-            const banner = document.querySelector('[data-testid="context-banner"]');
-            if (!tabChat || !banner) return null;
-            if (!banner.textContent.includes("Alpha Architecture Discussion")) return null;
+            const preset = document.querySelector('[data-testid="preset-aurora"]');
+            if (!preset) return null;
             return {
-              chatSelected: tabChat.getAttribute("aria-selected"),
-              bannerText: banner.textContent
+              hasScopeChat: Boolean(document.querySelector('[data-testid="scope-tab-chat"]')),
+              hasScopeGlobal: Boolean(document.querySelector('[data-testid="scope-tab-global"]')),
+              hasContextBanner: Boolean(document.querySelector('[data-testid="context-banner"]')),
+              hasPerChatList: Boolean(document.querySelector('[data-testid="per-chat-list"]')),
+              hasResetBtn: Boolean(document.querySelector('[data-testid="reset-this-chat-btn"]')),
+              bodyText: document.body.textContent || ""
             };
           })()`
         );
       },
       8000,
       100,
-      "popup chat context load"
+      "popup ready"
     );
-    assert.equal(
-      popupInit.chatSelected,
-      "true",
-      "This Chat tab should auto-select on /c/ URLs"
-    );
+    assert.equal(popupReady.hasScopeChat, false, "This Chat tab must be removed");
+    assert.equal(popupReady.hasScopeGlobal, false, "Global Default tab must be removed");
+    assert.equal(popupReady.hasContextBanner, false, "Scope context banner must be removed");
+    assert.equal(popupReady.hasPerChatList, false, "Per-chat list must be removed");
+    assert.equal(popupReady.hasResetBtn, false, "Reset chat button must be removed");
+    assert.equal(popupReady.bodyText.includes("This Chat"), false);
+    assert.equal(popupReady.bodyText.includes("Global Default"), false);
 
     // Select Northern Aurora GIF preset
     await cdp.evalInSession(
@@ -834,30 +831,6 @@ async function runTests() {
     assert.equal(videoApplied.muted, true);
     assert.equal(videoApplied.playsInline, true);
 
-    // Check Saved Backgrounds & Per-Chat Manager in popup
-    const managerCheck = await waitFor(
-      async () => {
-        return cdp.evalInSession(
-          popupSession,
-          `(() => {
-            const saved = document.querySelector('[data-testid="saved-item-0"]');
-            const chatRow = document.querySelector('[data-testid="chat-override-c:chat-alpha"]');
-            if (!saved || !chatRow) return null;
-            return {
-              hasSaved: true,
-              chatRowText: chatRow.textContent
-            };
-          })()`
-        );
-      },
-      6000,
-      100,
-      "saved background & per-chat manager entry"
-    );
-    assert.ok(
-      managerCheck.chatRowText.includes("Alpha Architecture Discussion")
-    );
-
     // Upload local PNG via file input
     await cdp.evalInSession(
       popupSession,
@@ -935,126 +908,39 @@ async function runTests() {
       "re-apply saved MP4 video"
     );
     console.log(
-      "  ✓ Popup presets, GIF, local upload, video, sliders, saved list, and per-chat manager verified"
+      "  ✓ Unified popup presets, GIF, local upload, video, sliders, sidebar frosting, and saved list verified"
     );
 
     console.log(
-      "[5/10] Verifying SPA routing & per-chat wallpaper switching..."
+      "[5/10] Verifying SPA navigation preserves canvas across routes..."
     );
-    await cdp.evalInSession(
-      chatSession,
-      `(() => {
-        document.title = "Beta Shader Notes - ChatGPT";
-        history.pushState({}, "", "/c/chat-beta");
-      })()`
-    );
-
-    const switchedToBeta = await waitFor(
-      async () => {
-        return cdp.evalInSession(
-          chatSession,
-          `(() => {
-            const media = document.getElementById("canvas-for-chatgpt-media");
-            if (!media || media.tagName !== "IMG") return null;
-            return { tagName: media.tagName, opacity: media.style.opacity, filter: media.style.filter };
-          })()`
-        );
-      },
-      6000,
-      100,
-      "fallback to global default on chat-beta"
-    );
-    assert.equal(switchedToBeta.tagName, "IMG");
-    assert.equal(switchedToBeta.opacity, "0.72");
-    assert.equal(switchedToBeta.filter, "none");
-
-    // Verify /g/:gpt/c/:chat, /g/:gpt, /g/:gpt/project, /share/:id, /share/e/:id, / routes via GET_CHAT_CONTEXT
-    for (const [routePath, expectedKey] of [
-      ["/g/g-demo/c/chat-nested", "c:chat-nested"],
-      ["/g/g-demo", "g:g-demo"],
-      ["/g/g-demo/project", "g:g-demo"],
-      ["/share/share-9", "share:share-9"],
-      ["/share/e/share-embed", "share:share-embed"],
-      ["/", null]
+    for (const routePath of [
+      "/c/chat-beta",
+      "/g/g-demo",
+      "/share/share-9",
+      "/",
+      "/c/chat-alpha"
     ]) {
       await cdp.evalInSession(
         chatSession,
         `history.pushState({}, "", ${JSON.stringify(routePath)})`
       );
-      const ctxRes = await cdp.evalInSession(
-        popupSession,
-        `new Promise((resolve) => {
-          chrome.tabs.query({ url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] }, (tabs) => {
-            chrome.tabs.sendMessage(tabs[0].id, { type: "GET_CHAT_CONTEXT" }, resolve);
-          });
-        })`
+      const persisted = await waitFor(
+        async () =>
+          cdp.evalInSession(
+            chatSession,
+            `(() => {
+              const media = document.getElementById("canvas-for-chatgpt-media");
+              return media && media.tagName === "VIDEO" ? media.getAttribute("src") : null;
+            })()`
+          ),
+        4000,
+        100,
+        `canvas persistence on ${routePath}`
       );
-      assert.equal(
-        ctxRes.chatKey,
-        expectedKey,
-        `Expected chatKey ${expectedKey} for ${routePath}`
-      );
+      assert.equal(persisted, "https://media.example.test/ambient-loop.mp4");
     }
-
-    // Verify "This Chat" tab remains selectable even on "/" (no disabled lock)
-    await cdp.evalInSession(popupSession, `location.reload()`);
-    const thisChatSelectableOnHome = await waitFor(
-      async () =>
-        cdp.evalInSession(
-          popupSession,
-          `(() => {
-            const tabChat = document.querySelector('[data-testid="scope-tab-chat"]');
-            const tabGlobal = document.querySelector('[data-testid="scope-tab-global"]');
-            if (!tabChat || !tabGlobal) return null;
-            if (tabGlobal.getAttribute("aria-selected") !== "true") return null;
-            return { disabled: tabChat.disabled };
-          })()`
-        ),
-      6000,
-      100,
-      "popup reload on home route"
-    );
-    assert.equal(thisChatSelectableOnHome.disabled, false, "This Chat tab must never be disabled");
-    await cdp.evalInSession(
-      popupSession,
-      `document.querySelector('[data-testid="scope-tab-chat"]').click()`
-    );
-    const chatTabSelectedOnHome = await waitFor(
-      async () =>
-        cdp.evalInSession(
-          popupSession,
-          `document.querySelector('[data-testid="scope-tab-chat"]')?.getAttribute("aria-selected") === "true"`
-        ),
-      4000,
-      100,
-      "This Chat selection on home route"
-    );
-    assert.equal(chatTabSelectedOnHome, true);
-    await cdp.evalInSession(
-      popupSession,
-      `document.querySelector('[data-testid="scope-tab-global"]').click()`
-    );
-
-    // Navigate back to chat-alpha and verify custom video wallpaper restores
-    await cdp.evalInSession(
-      chatSession,
-      `history.pushState({}, "", "/c/chat-alpha")`
-    );
-    const restoredAlpha = await waitFor(
-      async () =>
-        cdp.evalInSession(
-          chatSession,
-          `(() => {
-            const media = document.getElementById("canvas-for-chatgpt-media");
-            return media && media.tagName === "VIDEO" ? media.getAttribute("src") : null;
-          })()`
-        ),
-      6000,
-      100,
-      "restore chat-alpha video wallpaper"
-    );
-    assert.equal(restoredAlpha, "https://media.example.test/ambient-loop.mp4");
-    console.log("  ✓ Per-chat, GPT, share, and home SPA routing verified");
+    console.log("  ✓ Unified canvas persists cleanly across all SPA routes");
 
     console.log(
       "[6/10] Verifying composer wrapper transparency, ::before strips, and modern desktop/mobile frosted sidebars..."
@@ -1357,7 +1243,7 @@ async function runTests() {
     );
     assert.equal(tornDown, true);
 
-    // Re-enable and verify Reset This Chat to Default
+    // Re-enable
     await cdp.evalInSession(
       popupSession,
       `document.querySelector('[data-testid="enable-toggle"]').click()`
@@ -1372,25 +1258,7 @@ async function runTests() {
       100,
       "re-enable backdrop"
     );
-
-    await cdp.evalInSession(
-      popupSession,
-      `document.querySelector('[data-testid="reset-this-chat-btn"]').click()`
-    );
-    const resetWorked = await waitFor(
-      async () =>
-        cdp.evalInSession(
-          popupSession,
-          `!document.querySelector('[data-testid="chat-override-c:chat-alpha"]')`
-        ),
-      5000,
-      100,
-      "reset chat override"
-    );
-    assert.equal(resetWorked, true);
-    console.log(
-      "  ✓ DOM mutation recovery, toggle teardown, and reset controls verified"
-    );
+    console.log("  ✓ DOM mutation recovery & toggle teardown verified");
 
     console.log(
       "[9/10] Benchmarking ChatGPT streaming & typing lag (250 rapid streaming mutations + sidebar stability)..."
@@ -1399,7 +1267,6 @@ async function runTests() {
     const perfResult = await cdp.evalInSession(
       chatSession,
       `(async () => {
-        // Populate 120 sidebar history items to mirror real ChatGPT sidebar size
         const nav = document.querySelector("#stage-slideover-sidebar nav");
         for (let i = 0; i < 120; i++) {
           const a = document.createElement("a");
@@ -1408,7 +1275,6 @@ async function runTests() {
           nav.appendChild(a);
         }
 
-        // Count any attribute churn triggered on sidebar during streaming
         let sidebarAttributeMutations = 0;
         const sidebarSpy = new MutationObserver((list) => {
           sidebarAttributeMutations += list.length;
@@ -1438,7 +1304,6 @@ async function runTests() {
           await yieldTask();
         }
 
-        // Let any debounced observers settle
         await new Promise((r) => setTimeout(r, 200));
         const elapsedMs = performance.now() - start;
         sidebarSpy.disconnect();

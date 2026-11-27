@@ -2,13 +2,9 @@ import { Storage } from "@plasmohq/storage";
 
 import { clampNumber, isValidBackdropUrl } from "./media";
 import { DEFAULT_PRESET_URL } from "./presets";
-import type {
-  CanvasConfig,
-  ChatBackgroundEntry,
-  EffectiveVisuals
-} from "./types";
+import type { CanvasConfig } from "./types";
 
-// Preserve existing storage key so upgrades from v1.x/v2.x retain saved backgrounds and per-chat wallpapers
+// Preserve existing storage key so upgrades retain saved backgrounds and visual settings
 export const CONFIG_STORAGE_KEY = "chatgpt-custom-bg:cfg";
 
 export const DEFAULT_CONFIG: CanvasConfig = {
@@ -18,8 +14,7 @@ export const DEFAULT_CONFIG: CanvasConfig = {
   blurAmount: 0,
   gradientOpacity: 0.65,
   sidebarFrosting: 45,
-  savedBackgrounds: [],
-  chatBackgrounds: {}
+  savedBackgrounds: []
 };
 
 const plasmoLocalStorage = new Storage({ area: "local" });
@@ -35,67 +30,12 @@ function tryParseJson(raw: unknown): unknown {
   }
 }
 
-function sanitizeChatEntry(
-  rawEntry: unknown,
-  fallbackUrl: string
-): ChatBackgroundEntry | null {
-  if (!rawEntry || typeof rawEntry !== "object") return null;
-  const obj = rawEntry as Record<string, unknown>;
-  const backgroundImageUrl =
-    typeof obj.backgroundImageUrl === "string" &&
-    isValidBackdropUrl(obj.backgroundImageUrl)
-      ? obj.backgroundImageUrl.trim()
-      : fallbackUrl;
-
-  const entry: ChatBackgroundEntry = { backgroundImageUrl };
-  if (typeof obj.title === "string" && obj.title.trim()) {
-    entry.title = obj.title.trim();
-  }
-  if (typeof obj.mainImageOpacity === "number") {
-    entry.mainImageOpacity = clampNumber(
-      obj.mainImageOpacity,
-      0,
-      1,
-      DEFAULT_CONFIG.mainImageOpacity
-    );
-  }
-  if (typeof obj.blurAmount === "number") {
-    entry.blurAmount = clampNumber(
-      obj.blurAmount,
-      0,
-      100,
-      DEFAULT_CONFIG.blurAmount
-    );
-  }
-  if (typeof obj.gradientOpacity === "number") {
-    entry.gradientOpacity = clampNumber(
-      obj.gradientOpacity,
-      0,
-      1,
-      DEFAULT_CONFIG.gradientOpacity
-    );
-  }
-  if (typeof obj.sidebarFrosting === "number") {
-    entry.sidebarFrosting = clampNumber(
-      obj.sidebarFrosting,
-      0,
-      100,
-      DEFAULT_CONFIG.sidebarFrosting
-    );
-  }
-  if (typeof obj.updatedAt === "number" && Number.isFinite(obj.updatedAt)) {
-    entry.updatedAt = obj.updatedAt;
-  }
-  return entry;
-}
-
 export function normalizeConfig(raw: unknown): CanvasConfig {
   const parsed = tryParseJson(raw);
   if (!parsed || typeof parsed !== "object") {
     return {
       ...DEFAULT_CONFIG,
-      savedBackgrounds: [...DEFAULT_CONFIG.savedBackgrounds],
-      chatBackgrounds: {}
+      savedBackgrounds: [...DEFAULT_CONFIG.savedBackgrounds]
     };
   }
 
@@ -111,19 +51,6 @@ export function normalizeConfig(raw: unknown): CanvasConfig {
     for (const item of obj.savedBackgrounds) {
       if (typeof item === "string" && isValidBackdropUrl(item)) {
         savedSet.add(item.trim());
-      }
-    }
-  }
-
-  const chatBackgrounds: Record<string, ChatBackgroundEntry> = {};
-  if (obj.chatBackgrounds && typeof obj.chatBackgrounds === "object") {
-    for (const [key, entryRaw] of Object.entries(
-      obj.chatBackgrounds as Record<string, unknown>
-    )) {
-      if (!key) continue;
-      const cleanEntry = sanitizeChatEntry(entryRaw, backgroundImageUrl);
-      if (cleanEntry) {
-        chatBackgrounds[key] = cleanEntry;
       }
     }
   }
@@ -156,8 +83,7 @@ export function normalizeConfig(raw: unknown): CanvasConfig {
       100,
       DEFAULT_CONFIG.sidebarFrosting
     ),
-    savedBackgrounds: Array.from(savedSet),
-    chatBackgrounds
+    savedBackgrounds: Array.from(savedSet)
   };
 }
 
@@ -236,11 +162,7 @@ export function mergeConfigPartial(
     savedBackgrounds:
       partial.savedBackgrounds !== undefined
         ? partial.savedBackgrounds
-        : current.savedBackgrounds,
-    chatBackgrounds:
-      partial.chatBackgrounds !== undefined
-        ? partial.chatBackgrounds
-        : current.chatBackgrounds
+        : current.savedBackgrounds
   });
 }
 
@@ -250,46 +172,6 @@ export async function updateConfigPartial(
   const current = await loadConfig();
   const merged = mergeConfigPartial(current, partial);
   return saveConfig(merged);
-}
-
-export function resolveEffectiveVisuals(
-  cfg: CanvasConfig,
-  chatKey: string | null
-): EffectiveVisuals {
-  const entry = chatKey ? cfg.chatBackgrounds[chatKey] ?? null : null;
-  if (!entry) {
-    return {
-      backgroundImageUrl: cfg.backgroundImageUrl,
-      mainImageOpacity: cfg.mainImageOpacity,
-      blurAmount: cfg.blurAmount,
-      gradientOpacity: cfg.gradientOpacity,
-      sidebarFrosting: cfg.sidebarFrosting,
-      hasOverride: false,
-      entry: null
-    };
-  }
-
-  return {
-    backgroundImageUrl: entry.backgroundImageUrl || cfg.backgroundImageUrl,
-    mainImageOpacity:
-      typeof entry.mainImageOpacity === "number"
-        ? clampNumber(entry.mainImageOpacity, 0, 1, cfg.mainImageOpacity)
-        : cfg.mainImageOpacity,
-    blurAmount:
-      typeof entry.blurAmount === "number"
-        ? clampNumber(entry.blurAmount, 0, 100, cfg.blurAmount)
-        : cfg.blurAmount,
-    gradientOpacity:
-      typeof entry.gradientOpacity === "number"
-        ? clampNumber(entry.gradientOpacity, 0, 1, cfg.gradientOpacity)
-        : cfg.gradientOpacity,
-    sidebarFrosting:
-      typeof entry.sidebarFrosting === "number"
-        ? clampNumber(entry.sidebarFrosting, 0, 100, cfg.sidebarFrosting)
-        : cfg.sidebarFrosting,
-    hasOverride: true,
-    entry
-  };
 }
 
 export function watchConfig(onChange: (cfg: CanvasConfig) => void): () => void {

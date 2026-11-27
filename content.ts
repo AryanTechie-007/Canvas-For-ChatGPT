@@ -1,11 +1,9 @@
 import type { PlasmoCSConfig } from "plasmo";
 
 import { isVideoUrl } from "./lib/media";
-import { extractChatTitleFromDom, resolveChatKeyFromUrl } from "./lib/routing";
 import {
   DEFAULT_CONFIG,
   loadConfig,
-  resolveEffectiveVisuals,
   updateConfigPartial,
   watchConfig
 } from "./lib/storage";
@@ -24,12 +22,7 @@ import {
   STYLE_ELEMENT_ID,
   buildContentCss
 } from "./lib/styles";
-import type {
-  CanvasConfig,
-  ChatContext,
-  EffectiveVisuals,
-  RuntimeMessage
-} from "./lib/types";
+import type { CanvasConfig, RuntimeMessage } from "./lib/types";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://chatgpt.com/*", "https://chat.openai.com/*"],
@@ -52,14 +45,12 @@ const SIDEBAR_ROOT_SELECTOR =
 
 let currentConfig: CanvasConfig = {
   ...DEFAULT_CONFIG,
-  savedBackgrounds: [],
-  chatBackgrounds: {}
+  savedBackgrounds: []
 };
 
 let lastKnownHref = typeof location !== "undefined" ? location.href : "";
 let isReconciling = false;
 let structuralSyncTimer: number | undefined;
-let titleSyncTimeout: number | undefined;
 
 // Cached DOM element references for O(1) integrity checks
 let styleEl: HTMLStyleElement | null = null;
@@ -102,22 +93,6 @@ function detectTheme(): "dark" | "light" {
     return "dark";
   }
   return "light";
-}
-
-function getChatContext(): ChatContext {
-  const url = location.href;
-  const route = resolveChatKeyFromUrl(url);
-  const title = extractChatTitleFromDom(document, route.chatKey);
-  const theme = detectTheme();
-
-  return {
-    url,
-    pathname: route.pathname,
-    chatKey: route.chatKey,
-    title,
-    routeType: route.routeType,
-    theme
-  };
 }
 
 function ensureStyleElement(): void {
@@ -387,7 +362,7 @@ function clearSidebarFrosting(): void {
 
 function applyVisualsToBackdrop(
   backdrop: HTMLDivElement,
-  visuals: EffectiveVisuals,
+  visuals: CanvasConfig,
   theme: "dark" | "light"
 ): void {
   const wantVideo = isVideoUrl(visuals.backgroundImageUrl);
@@ -486,31 +461,6 @@ function applyVisualsToBackdrop(
   lastVisualSignature = signature;
 }
 
-function maybeSyncChatTitle(chatKey: string | null, title: string | null): void {
-  if (!chatKey || !title) return;
-  const existing = currentConfig.chatBackgrounds[chatKey];
-  if (!existing || existing.title === title) return;
-
-  if (titleSyncTimeout !== undefined) {
-    window.clearTimeout(titleSyncTimeout);
-  }
-  titleSyncTimeout = window.setTimeout(() => {
-    const latestEntry = currentConfig.chatBackgrounds[chatKey];
-    if (!latestEntry || latestEntry.title === title) return;
-    void updateConfigPartial({
-      chatBackgrounds: {
-        ...currentConfig.chatBackgrounds,
-        [chatKey]: {
-          ...latestEntry,
-          title
-        }
-      }
-    }).then((saved) => {
-      currentConfig = saved;
-    });
-  }, 250);
-}
-
 function reconcileDom(): void {
   if (isReconciling) return;
   isReconciling = true;
@@ -531,20 +481,18 @@ function reconcileDom(): void {
       return;
     }
 
-    const ctx = getChatContext();
-    const visuals = resolveEffectiveVisuals(currentConfig, ctx.chatKey);
+    const theme = detectTheme();
 
     ensureStyleElement();
-    ensureRootClasses(ctx.theme);
+    ensureRootClasses(theme);
 
     const backdrop = ensureBackdropElement();
     if (backdrop) {
-      applyVisualsToBackdrop(backdrop, visuals, ctx.theme);
+      applyVisualsToBackdrop(backdrop, currentConfig, theme);
     }
 
     syncLayoutAncestors();
     tagNewComposers();
-    maybeSyncChatTitle(ctx.chatKey, ctx.title);
   } finally {
     isReconciling = false;
   }
@@ -619,7 +567,6 @@ function installNavigationHooks(): void {
   ).navigation;
   navApi?.addEventListener?.("navigatesuccess", handleLocationChange);
 
-  // Lightweight URL string comparison for isolated-world SPA route switches
   window.setInterval(() => {
     if (location.href !== lastKnownHref) {
       handleLocationChange();
@@ -726,16 +673,6 @@ function installMessageListener(): void {
   globalThis.chrome?.runtime?.onMessage?.addListener(
     (message: RuntimeMessage, _sender, sendResponse) => {
       if (!message || typeof message.type !== "string") {
-        return false;
-      }
-
-      if (message.type === "GET_CHAT_CONTEXT") {
-        const ctx = getChatContext();
-        sendResponse({
-          ok: true,
-          ...ctx,
-          context: ctx
-        });
         return false;
       }
 

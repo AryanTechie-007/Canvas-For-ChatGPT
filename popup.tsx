@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import "./popup.css";
 import {
@@ -9,23 +9,14 @@ import {
   readFileAsDataUrl
 } from "./lib/media";
 import { PRESET_BACKDROPS } from "./lib/presets";
-import { formatChatLabel, resolveChatKeyFromUrl } from "./lib/routing";
 import {
   DEFAULT_CONFIG,
   loadConfig,
   mergeConfigPartial,
-  resolveEffectiveVisuals,
   updateConfigPartial,
   watchConfig
 } from "./lib/storage";
-import type {
-  CanvasConfig,
-  ChatContext,
-  GetChatContextResponse,
-  GetConfigResponse
-} from "./lib/types";
-
-type ScopeMode = "chat" | "global";
+import type { CanvasConfig, GetConfigResponse } from "./lib/types";
 
 function sendTabMessage<T>(
   tabId: number,
@@ -113,9 +104,6 @@ function MediaPreview({
 
 export default function IndexPopup() {
   const [cfg, setCfg] = useState<CanvasConfig>(DEFAULT_CONFIG);
-  const [activeTabId, setActiveTabId] = useState<number | null>(null);
-  const [chatContext, setChatContext] = useState<ChatContext | null>(null);
-  const [scope, setScope] = useState<ScopeMode>("global");
   const [customUrl, setCustomUrl] = useState("");
   const [statusMsg, setStatusMsg] = useState<{
     text: string;
@@ -129,7 +117,6 @@ export default function IndexPopup() {
   const lastFrostingRef = useRef<number>(DEFAULT_CONFIG.sidebarFrosting);
   const cfgRef = useRef<CanvasConfig>(DEFAULT_CONFIG);
   cfgRef.current = cfg;
-  activeTabIdRef.current = activeTabId;
 
   useEffect(() => {
     let mounted = true;
@@ -143,150 +130,29 @@ export default function IndexPopup() {
       if (!mounted) return;
 
       if (tab?.id != null) {
-        setActiveTabId(tab.id);
         activeTabIdRef.current = tab.id;
         try {
-          const ctxRes = await sendTabMessage<
-            GetChatContextResponse & { chatTitle?: string }
-          >(tab.id, {
-            type: "GET_CHAT_CONTEXT"
-          });
-          try {
-            const cfgRes = await sendTabMessage<
-              GetConfigResponse | CanvasConfig
-            >(tab.id, {
-              type: "GET_CFG"
-            });
-            if (!mounted) return;
-            if (cfgRes && "ok" in cfgRes && cfgRes.ok && cfgRes.cfg) {
-              setCfg(cfgRes.cfg);
-            } else if (
-              cfgRes &&
-              "backgroundImageUrl" in cfgRes &&
-              typeof cfgRes.backgroundImageUrl === "string"
-            ) {
-              setCfg(mergeConfigPartial(DEFAULT_CONFIG, cfgRes));
-            }
-          } catch {
-            // Keep initial config from storage if GET_CFG fails
-          }
-
+          const cfgRes = await sendTabMessage<GetConfigResponse | CanvasConfig>(
+            tab.id,
+            { type: "GET_CFG" }
+          );
           if (!mounted) return;
-
-          if (
-            ctxRes &&
-            (ctxRes.ok || typeof ctxRes.chatKey !== "undefined")
+          if (cfgRes && "ok" in cfgRes && cfgRes.ok && cfgRes.cfg) {
+            setCfg(cfgRes.cfg);
+          } else if (
+            cfgRes &&
+            "backgroundImageUrl" in cfgRes &&
+            typeof cfgRes.backgroundImageUrl === "string"
           ) {
-            const tabUrl =
-              ctxRes.url ||
-              tab.url ||
-              (tab as chrome.tabs.Tab & { pendingUrl?: string }).pendingUrl ||
-              "";
-            const routeFallback = resolveChatKeyFromUrl(tabUrl);
-            const resolvedChatKey = ctxRes.chatKey ?? routeFallback.chatKey;
-            const ctx: ChatContext = ctxRes.context ?? {
-              url: tabUrl,
-              pathname: ctxRes.pathname ?? routeFallback.pathname,
-              chatKey: resolvedChatKey,
-              title:
-                ctxRes.title ??
-                ctxRes.chatTitle ??
-                (tab.title
-                  ?.replace(
-                    /^(?:ChatGPT\s*[-|–—]\s*)|(?:\s*[-|–—]\s*ChatGPT\s*$)/gi,
-                    ""
-                  )
-                  .trim() ||
-                  null),
-              routeType: ctxRes.routeType ?? routeFallback.routeType,
-              theme: ctxRes.theme ?? "dark"
-            };
-            setChatContext(ctx);
-            setScope(ctx.chatKey ? "chat" : "global");
-            return;
+            setCfg(mergeConfigPartial(DEFAULT_CONFIG, cfgRes));
           }
         } catch {
           // Active tab may not be chatgpt.com or content script is not injected yet
         }
       }
-
-      const url =
-        tab?.url ||
-        (tab as (chrome.tabs.Tab & { pendingUrl?: string }) | null)
-          ?.pendingUrl ||
-        "";
-      const fallbackRoute = resolveChatKeyFromUrl(url);
-      if (fallbackRoute.chatKey) {
-        setChatContext({
-          url,
-          pathname: fallbackRoute.pathname,
-          chatKey: fallbackRoute.chatKey,
-          title:
-            tab?.title
-              ?.replace(
-                /^(?:ChatGPT\s*[-|–—]\s*)|(?:\s*[-|–—]\s*ChatGPT\s*$)/gi,
-                ""
-              )
-              .trim() || null,
-          routeType: fallbackRoute.routeType,
-          theme: "dark"
-        });
-        setScope("chat");
-      } else {
-        setChatContext(
-          url
-            ? {
-                url,
-                pathname: fallbackRoute.pathname,
-                chatKey: null,
-                title: null,
-                routeType: "default",
-                theme: "dark"
-              }
-            : null
-        );
-        setScope("global");
-      }
     }
 
     void init();
-
-    const handleTabUpdated = (
-      updatedTabId: number,
-      changeInfo: chrome.tabs.TabChangeInfo,
-      updatedTab: chrome.tabs.Tab
-    ) => {
-      if (!mounted || updatedTabId !== activeTabIdRef.current) return;
-      if (!changeInfo.url && !changeInfo.title) return;
-      const nextUrl = changeInfo.url || updatedTab.url || "";
-      if (!nextUrl) return;
-      const nextRoute = resolveChatKeyFromUrl(nextUrl);
-      setChatContext((prev) => ({
-        url: nextUrl,
-        pathname: nextRoute.pathname,
-        chatKey: nextRoute.chatKey,
-        title:
-          updatedTab.title
-            ?.replace(
-              /^(?:ChatGPT\s*[-|–—]\s*)|(?:\s*[-|–—]\s*ChatGPT\s*$)/gi,
-              ""
-            )
-            .trim() ||
-          prev?.title ||
-          null,
-        routeType: nextRoute.routeType,
-        theme: prev?.theme ?? "dark"
-      }));
-      if (nextRoute.chatKey) {
-        setScope("chat");
-      }
-    };
-
-    try {
-      chrome.tabs?.onUpdated?.addListener(handleTabUpdated);
-    } catch {
-      // Ignore outside extension tab APIs
-    }
 
     const unwatch = watchConfig((nextCfg) => {
       if (mounted && !isFlushingRef.current && !pendingPartialRef.current) {
@@ -297,43 +163,14 @@ export default function IndexPopup() {
     return () => {
       mounted = false;
       unwatch();
-      try {
-        chrome.tabs?.onUpdated?.removeListener(handleTabUpdated);
-      } catch {
-        // Ignore cleanup errors
-      }
     };
   }, []);
 
-  const currentChatKey = chatContext?.chatKey ?? null;
-  const effectiveScope: ScopeMode = scope;
-
-  const activeVisuals = useMemo(() => {
-    if (effectiveScope === "chat" && currentChatKey) {
-      return resolveEffectiveVisuals(cfg, currentChatKey);
-    }
-    return {
-      backgroundImageUrl: cfg.backgroundImageUrl,
-      mainImageOpacity: cfg.mainImageOpacity,
-      blurAmount: cfg.blurAmount,
-      gradientOpacity: cfg.gradientOpacity,
-      sidebarFrosting: cfg.sidebarFrosting,
-      hasOverride: Boolean(
-        currentChatKey && cfg.chatBackgrounds[currentChatKey]
-      ),
-      entry: null
-    };
-  }, [cfg, currentChatKey, effectiveScope]);
-
-  if (activeVisuals.sidebarFrosting > 0) {
-    lastFrostingRef.current = activeVisuals.sidebarFrosting;
+  if (cfg.sidebarFrosting > 0) {
+    lastFrostingRef.current = cfg.sidebarFrosting;
   }
 
-  const isSidebarClean = activeVisuals.sidebarFrosting <= 0;
-
-  const currentChatHasOverride = Boolean(
-    currentChatKey && cfg.chatBackgrounds[currentChatKey]
-  );
+  const isSidebarClean = cfg.sidebarFrosting <= 0;
 
   async function flushPendingPartials() {
     if (isFlushingRef.current) return;
@@ -391,10 +228,7 @@ export default function IndexPopup() {
     void flushPendingPartials();
   }
 
-  function applyWallpaperToActiveScope(
-    url: string,
-    extraSavedUrl?: string
-  ): void {
+  function applyWallpaper(url: string, extraSavedUrl?: string): void {
     const latest = cfgRef.current;
     const nextSaved = extraSavedUrl
       ? [
@@ -403,82 +237,10 @@ export default function IndexPopup() {
         ]
       : latest.savedBackgrounds;
 
-    if (effectiveScope === "chat" && currentChatKey) {
-      const prevEntry = latest.chatBackgrounds[currentChatKey];
-      const visuals = resolveEffectiveVisuals(latest, currentChatKey);
-      commitPartial({
-        savedBackgrounds: nextSaved,
-        chatBackgrounds: {
-          ...latest.chatBackgrounds,
-          [currentChatKey]: {
-            backgroundImageUrl: url,
-            title: chatContext?.title ?? prevEntry?.title,
-            mainImageOpacity:
-              prevEntry?.mainImageOpacity ?? visuals.mainImageOpacity,
-            blurAmount: prevEntry?.blurAmount ?? visuals.blurAmount,
-            gradientOpacity:
-              prevEntry?.gradientOpacity ?? visuals.gradientOpacity,
-            sidebarFrosting:
-              prevEntry?.sidebarFrosting ?? visuals.sidebarFrosting,
-            updatedAt: Date.now()
-          }
-        }
-      });
-    } else {
-      commitPartial({
-        backgroundImageUrl: url,
-        savedBackgrounds: nextSaved
-      });
-      if (effectiveScope === "chat" && !currentChatKey) {
-        setStatusMsg({
-          text: "Home (/) uses Global Default — open a chat (/c/...) to save per-chat."
-        });
-      }
-    }
-  }
-
-  function updateSliderInActiveScope(
-    field:
-      | "mainImageOpacity"
-      | "blurAmount"
-      | "gradientOpacity"
-      | "sidebarFrosting",
-    value: number
-  ) {
-    const latest = cfgRef.current;
-    if (effectiveScope === "chat" && currentChatKey) {
-      const prevEntry = latest.chatBackgrounds[currentChatKey];
-      const visuals = resolveEffectiveVisuals(latest, currentChatKey);
-      commitPartial({
-        chatBackgrounds: {
-          ...latest.chatBackgrounds,
-          [currentChatKey]: {
-            backgroundImageUrl:
-              prevEntry?.backgroundImageUrl ?? visuals.backgroundImageUrl,
-            title: chatContext?.title ?? prevEntry?.title,
-            mainImageOpacity:
-              field === "mainImageOpacity"
-                ? value
-                : prevEntry?.mainImageOpacity ?? visuals.mainImageOpacity,
-            blurAmount:
-              field === "blurAmount"
-                ? value
-                : prevEntry?.blurAmount ?? visuals.blurAmount,
-            gradientOpacity:
-              field === "gradientOpacity"
-                ? value
-                : prevEntry?.gradientOpacity ?? visuals.gradientOpacity,
-            sidebarFrosting:
-              field === "sidebarFrosting"
-                ? value
-                : prevEntry?.sidebarFrosting ?? visuals.sidebarFrosting,
-            updatedAt: Date.now()
-          }
-        }
-      });
-    } else {
-      commitPartial({ [field]: value } as Partial<CanvasConfig>);
-    }
+    commitPartial({
+      backgroundImageUrl: url,
+      savedBackgrounds: nextSaved
+    });
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -497,7 +259,7 @@ export default function IndexPopup() {
     try {
       setStatusMsg({ text: `Importing ${file.name}...` });
       const dataUrl = await readFileAsDataUrl(file);
-      applyWallpaperToActiveScope(dataUrl, dataUrl);
+      applyWallpaper(dataUrl, dataUrl);
       setStatusMsg({ text: `Applied & saved "${file.name}".` });
     } catch (error) {
       setStatusMsg({
@@ -521,7 +283,7 @@ export default function IndexPopup() {
       return;
     }
 
-    applyWallpaperToActiveScope(trimmed, trimmed);
+    applyWallpaper(trimmed, trimmed);
     setCustomUrl("");
     setStatusMsg({ text: "Custom URL applied and saved." });
   }
@@ -534,17 +296,6 @@ export default function IndexPopup() {
     setStatusMsg({ text: "Removed from saved backgrounds." });
   }
 
-  function handleRemoveChatOverride(chatKey: string) {
-    const nextChatBackgrounds = { ...cfgRef.current.chatBackgrounds };
-    delete nextChatBackgrounds[chatKey];
-    commitPartial({ chatBackgrounds: nextChatBackgrounds });
-  }
-
-  function handleClearAllChats() {
-    commitPartial({ chatBackgrounds: {} });
-    setStatusMsg({ text: "Cleared all per-chat overrides." });
-  }
-
   function handleOpenOptions() {
     if (chrome.runtime?.openOptionsPage) {
       chrome.runtime.openOptionsPage();
@@ -552,12 +303,6 @@ export default function IndexPopup() {
     }
     window.open(chrome.runtime.getURL("options.html"), "_blank");
   }
-
-  const chatEntries = useMemo(() => {
-    return Object.entries(cfg.chatBackgrounds).sort(
-      ([, a], [, b]) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)
-    );
-  }, [cfg.chatBackgrounds]);
 
   return (
     <div className="popup-shell">
@@ -600,74 +345,22 @@ export default function IndexPopup() {
         </div>
       </header>
 
-      <div className="scope-tabs" role="tablist" aria-label="Wallpaper scope">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={effectiveScope === "chat"}
-          data-testid="scope-tab-chat"
-          className={`scope-tab ${effectiveScope === "chat" ? "active" : ""}`}
-          onClick={() => setScope("chat")}>
-          This Chat
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={effectiveScope === "global"}
-          data-testid="scope-tab-global"
-          className={`scope-tab ${effectiveScope === "global" ? "active" : ""}`}
-          onClick={() => setScope("global")}>
-          Global Default
-        </button>
-      </div>
-
-      <div className="context-banner" data-testid="context-banner">
-        <span className="context-label">
-          {currentChatKey ? (
-            <>
-              Target:{" "}
-              <strong>{chatContext?.title || currentChatKey}</strong>
-            </>
-          ) : effectiveScope === "chat" ? (
-            "Home (/) has no chat ID yet — open a chat (/c/...) to pin one"
-          ) : (
-            "Editing Global Default (applies to Home / and uncustomized chats)"
-          )}
-        </span>
-        <span
-          className={`context-pill ${
-            effectiveScope === "chat" && currentChatHasOverride ? "custom" : ""
-          }`}>
-          {effectiveScope === "chat"
-            ? currentChatKey
-              ? currentChatHasOverride
-                ? "Custom Chat"
-                : "Using Default"
-              : "Home (/)"
-            : "Global"}
-        </span>
-      </div>
-
       <section className="panel-section">
         <div className="section-header">
           <h2 className="section-title">Backdrop Picker</h2>
-          <span className="section-hint">
-            {effectiveScope === "chat" && currentChatKey
-              ? "Applies to this chat"
-              : "Global fallback"}
-          </span>
+          <span className="section-hint">Instant apply</span>
         </div>
 
         <div className="preset-grid">
           {PRESET_BACKDROPS.map((preset) => {
-            const isSelected = activeVisuals.backgroundImageUrl === preset.url;
+            const isSelected = cfg.backgroundImageUrl === preset.url;
             return (
               <button
                 key={preset.id}
                 type="button"
                 data-testid={`preset-${preset.id}`}
                 className={`preset-card ${isSelected ? "selected" : ""}`}
-                onClick={() => applyWallpaperToActiveScope(preset.url)}>
+                onClick={() => applyWallpaper(preset.url)}>
                 <img
                   className="preset-thumb"
                   src={preset.url}
@@ -737,7 +430,7 @@ export default function IndexPopup() {
             </div>
             <div className="saved-grid" data-testid="saved-backgrounds-list">
               {cfg.savedBackgrounds.map((url, idx) => {
-                const isSelected = activeVisuals.backgroundImageUrl === url;
+                const isSelected = cfg.backgroundImageUrl === url;
                 return (
                   <div
                     key={url}
@@ -747,7 +440,7 @@ export default function IndexPopup() {
                       type="button"
                       className="saved-apply-btn"
                       title="Apply saved background"
-                      onClick={() => applyWallpaperToActiveScope(url)}>
+                      onClick={() => applyWallpaper(url)}>
                       <MediaPreview url={url} className="saved-media" />
                     </button>
                     <button
@@ -777,7 +470,7 @@ export default function IndexPopup() {
           <div className="slider-meta">
             <span>Image Opacity</span>
             <span className="slider-value">
-              {activeVisuals.mainImageOpacity.toFixed(2)}
+              {cfg.mainImageOpacity.toFixed(2)}
             </span>
           </div>
           <input
@@ -787,12 +480,9 @@ export default function IndexPopup() {
             min={0}
             max={1}
             step={0.01}
-            value={activeVisuals.mainImageOpacity}
+            value={cfg.mainImageOpacity}
             onChange={(e) =>
-              updateSliderInActiveScope(
-                "mainImageOpacity",
-                parseFloat(e.target.value)
-              )
+              commitPartial({ mainImageOpacity: parseFloat(e.target.value) })
             }
           />
         </label>
@@ -800,7 +490,7 @@ export default function IndexPopup() {
         <label className="slider-row">
           <div className="slider-meta">
             <span>Image Blur</span>
-            <span className="slider-value">{activeVisuals.blurAmount}px</span>
+            <span className="slider-value">{cfg.blurAmount}px</span>
           </div>
           <input
             type="range"
@@ -809,9 +499,9 @@ export default function IndexPopup() {
             min={0}
             max={100}
             step={1}
-            value={activeVisuals.blurAmount}
+            value={cfg.blurAmount}
             onChange={(e) =>
-              updateSliderInActiveScope("blurAmount", parseInt(e.target.value, 10))
+              commitPartial({ blurAmount: parseInt(e.target.value, 10) })
             }
           />
         </label>
@@ -820,7 +510,7 @@ export default function IndexPopup() {
           <div className="slider-meta">
             <span>Gradient Opacity</span>
             <span className="slider-value">
-              {activeVisuals.gradientOpacity.toFixed(2)}
+              {cfg.gradientOpacity.toFixed(2)}
             </span>
           </div>
           <input
@@ -830,12 +520,9 @@ export default function IndexPopup() {
             min={0}
             max={1}
             step={0.01}
-            value={activeVisuals.gradientOpacity}
+            value={cfg.gradientOpacity}
             onChange={(e) =>
-              updateSliderInActiveScope(
-                "gradientOpacity",
-                parseFloat(e.target.value)
-              )
+              commitPartial({ gradientOpacity: parseFloat(e.target.value) })
             }
           />
         </label>
@@ -843,12 +530,15 @@ export default function IndexPopup() {
         <div className="sidebar-control-group">
           <div className="slider-meta">
             <span>Sidebar Style</span>
-            <div className="sidebar-mode-pills" role="group" aria-label="Sidebar style">
+            <div
+              className="sidebar-mode-pills"
+              role="group"
+              aria-label="Sidebar style">
               <button
                 type="button"
                 data-testid="sidebar-mode-clean"
                 className={`sidebar-mode-btn ${isSidebarClean ? "active" : ""}`}
-                onClick={() => updateSliderInActiveScope("sidebarFrosting", 0)}>
+                onClick={() => commitPartial({ sidebarFrosting: 0 })}>
                 Clean
               </button>
               <button
@@ -856,12 +546,12 @@ export default function IndexPopup() {
                 data-testid="sidebar-mode-frosted"
                 className={`sidebar-mode-btn ${!isSidebarClean ? "active" : ""}`}
                 onClick={() =>
-                  updateSliderInActiveScope(
-                    "sidebarFrosting",
-                    lastFrostingRef.current > 0
-                      ? lastFrostingRef.current
-                      : DEFAULT_CONFIG.sidebarFrosting
-                  )
+                  commitPartial({
+                    sidebarFrosting:
+                      lastFrostingRef.current > 0
+                        ? lastFrostingRef.current
+                        : DEFAULT_CONFIG.sidebarFrosting
+                  })
                 }>
                 Frosted
               </button>
@@ -874,9 +564,7 @@ export default function IndexPopup() {
               <span
                 className="slider-value"
                 data-testid="sidebar-frosting-value">
-                {isSidebarClean
-                  ? "Clean (0%)"
-                  : `${activeVisuals.sidebarFrosting}%`}
+                {isSidebarClean ? "Clean (0%)" : `${cfg.sidebarFrosting}%`}
               </span>
             </div>
             <input
@@ -886,89 +574,15 @@ export default function IndexPopup() {
               min={0}
               max={100}
               step={1}
-              value={activeVisuals.sidebarFrosting}
+              value={cfg.sidebarFrosting}
               onChange={(e) =>
-                updateSliderInActiveScope(
-                  "sidebarFrosting",
-                  parseInt(e.target.value, 10)
-                )
+                commitPartial({
+                  sidebarFrosting: parseInt(e.target.value, 10)
+                })
               }
             />
           </label>
         </div>
-      </section>
-
-      <section className="panel-section">
-        <div className="section-header">
-          <h2 className="section-title">Per-Chat Wallpapers</h2>
-          <span className="section-hint">{chatEntries.length} custom</span>
-        </div>
-
-        <div className="manager-actions">
-          <button
-            type="button"
-            className="btn"
-            style={{ flex: 1 }}
-            data-testid="reset-this-chat-btn"
-            disabled={!currentChatKey || !currentChatHasOverride}
-            onClick={() => {
-              if (currentChatKey) {
-                handleRemoveChatOverride(currentChatKey);
-              }
-            }}>
-            Reset This Chat to Default
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger"
-            data-testid="clear-all-chats-btn"
-            disabled={chatEntries.length === 0}
-            onClick={handleClearAllChats}>
-            Clear All
-          </button>
-        </div>
-
-        {chatEntries.length === 0 ? (
-          <p className="empty-note">
-            No custom per-chat wallpapers yet. Select a backdrop while in{" "}
-            <strong>This Chat</strong> mode to pin one.
-          </p>
-        ) : (
-          <div className="chat-list" data-testid="per-chat-list">
-            {chatEntries.map(([key, entry]) => {
-              const isCurrent = key === currentChatKey;
-              return (
-                <div
-                  key={key}
-                  className={`chat-row ${isCurrent ? "current" : ""}`}
-                  data-testid={`chat-override-${key}`}>
-                  <MediaPreview
-                    url={entry.backgroundImageUrl}
-                    className="chat-thumb"
-                  />
-                  <div className="chat-info">
-                    <span className="chat-title">
-                      {formatChatLabel(key, entry)}
-                    </span>
-                    <span className="chat-key">{key}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="chat-remove-btn"
-                    data-testid={`remove-chat-${key}`}
-                    aria-label={`Remove custom wallpaper for ${formatChatLabel(
-                      key,
-                      entry
-                    )}`}
-                    title="Reset chat to Global Default"
-                    onClick={() => handleRemoveChatOverride(key)}>
-                    ✕
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </section>
     </div>
   );
