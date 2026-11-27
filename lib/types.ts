@@ -4,6 +4,7 @@ export interface ChatBackgroundEntry {
   mainImageOpacity?: number;
   blurAmount?: number;
   gradientOpacity?: number;
+  sidebarFrosting?: number;
   updatedAt?: number;
 }
 
@@ -13,6 +14,7 @@ export interface CanvasConfig {
   mainImageOpacity: number;
   blurAmount: number;
   gradientOpacity: number;
+  sidebarFrosting: number;
   savedBackgrounds: string[];
   chatBackgrounds: Record<string, ChatBackgroundEntry>;
 }
@@ -33,6 +35,7 @@ export interface EffectiveVisuals {
   mainImageOpacity: number;
   blurAmount: number;
   gradientOpacity: number;
+  sidebarFrosting: number;
   hasOverride: boolean;
   entry: ChatBackgroundEntry | null;
 }

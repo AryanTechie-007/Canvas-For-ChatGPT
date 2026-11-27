@@ -19,7 +19,8 @@ Transform [ChatGPT](https://chatgpt.com/) into a calm, ultra-responsive workspac
   - **Image Opacity** (`0` to `1`)
   - **Image Blur** (`0px` to `100px`)
   - **Gradient Opacity** (`0` to `1`)
-- **Theme-Aware ChatGPT Integration**: Automatically adapts to ChatGPT's dark and light modes, provides a unified frosted-glass sidebar (`#stage-slideover-sidebar` & `#stage-popover-sidebar`), keeps the prompt composer as a clean rounded pill without rectangular outer boxes, and protects dialogs and menus.
+  - **Sidebar Style & Frosting** (`Clean` at `0%` for a completely transparent sidebar, or `Frosted` `1%–100%` to tune glass tint & blur)
+- **Theme-Aware ChatGPT Integration**: Automatically adapts to ChatGPT's dark and light modes, lets you toggle between a completely clean transparent sidebar and customizable frosted glass (`#stage-slideover-sidebar` & `#stage-popover-sidebar`), keeps the prompt composer as a clean rounded pill without rectangular outer boxes, and protects dialogs and menus.
 - **SPA & DOM Resilience**: Detects client-side route transitions (`pushState`, `replaceState`, `popstate`, Navigation API) and recovers automatically from React DOM updates via `MutationObserver`.
 - **Per-Chat Wallpapers Manager**: View every customized chat by readable title and route key, reset individual chats (`✕`), reset the active chat to default, or clear all overrides at once.
 
@@ -40,7 +41,7 @@ Transform [ChatGPT](https://chatgpt.com/) into a calm, ultra-responsive workspac
 
 ## Browser Installation Guide
 
-Download the latest **`canvas-for-chatgpt-v3.0.zip`** from [GitHub Releases](https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases) and **extract the ZIP** into a permanent folder on your computer (for example, `Documents/Canvas-For-ChatGPT`).
+Download the latest **`canvas-for-chatgpt-v3.1.zip`** from [GitHub Releases](https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases) and **extract the ZIP** into a permanent folder on your computer (for example, `Documents/Canvas-For-ChatGPT`).
 
 > **Note:** Do not delete the extracted folder after installing—your browser loads the extension from that folder. If you build from source, run `npm install && npm run build` first and select `build/chrome-mv3-prod`.
 

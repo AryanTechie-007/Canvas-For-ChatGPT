@@ -265,7 +265,7 @@ function verifyManifestV3Build() {
   assert.equal(manifest.manifest_version, 3, "manifest_version must be 3");
   assert.equal(manifest.name, "Canvas for ChatGPT");
   assert.equal(manifest.version, pkg.version);
-  assert.equal(manifest.version_name, "v3.0");
+  assert.equal(manifest.version_name, "v3.1");
 
   // Chromium integer version parts check (1-4 dot-separated integers 0-65535)
   const versionParts = String(manifest.version || "").split(".");
@@ -678,6 +678,113 @@ async function runTests() {
       gradOpacity: "0.77"
     });
 
+    // Test Sidebar Style: Clean (0%), Frosted restore, and custom frosting slider (80% -> back to 45%)
+    await cdp.evalInSession(
+      popupSession,
+      `document.querySelector('[data-testid="sidebar-mode-clean"]').click()`
+    );
+    const cleanSidebarState = await waitFor(
+      async () =>
+        cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const sidebar = document.getElementById("stage-slideover-sidebar");
+            const cs = getComputedStyle(sidebar);
+            const blur = cs.backdropFilter || cs.webkitBackdropFilter || "";
+            if (cs.backgroundColor !== "rgba(0, 0, 0, 0)" || blur !== "none") return null;
+            return { bg: cs.backgroundColor, blur };
+          })()`
+        ),
+      6000,
+      100,
+      "clean transparent sidebar mode"
+    );
+    assert.equal(cleanSidebarState.bg, "rgba(0, 0, 0, 0)");
+    assert.equal(cleanSidebarState.blur, "none");
+
+    const cleanLabel = await cdp.evalInSession(
+      popupSession,
+      `document.querySelector('[data-testid="sidebar-frosting-value"]').textContent`
+    );
+    assert.equal(cleanLabel, "Clean (0%)");
+
+    await cdp.evalInSession(
+      popupSession,
+      `document.querySelector('[data-testid="sidebar-mode-frosted"]').click()`
+    );
+    await waitFor(
+      async () =>
+        cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const sidebar = document.getElementById("stage-slideover-sidebar");
+            const cs = getComputedStyle(sidebar);
+            const blur = cs.backdropFilter || cs.webkitBackdropFilter || "";
+            return blur.includes("blur(") && cs.backgroundColor !== "rgba(0, 0, 0, 0)"
+              ? { bg: cs.backgroundColor, blur }
+              : null;
+          })()`
+        ),
+      6000,
+      100,
+      "frosted sidebar restore"
+    );
+
+    await cdp.evalInSession(
+      popupSession,
+      `(() => {
+        const el = document.querySelector('[data-testid="slider-sidebar-frosting"]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        setter.call(el, "80");
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      })()`
+    );
+    const highFrostState = await waitFor(
+      async () =>
+        cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const sidebar = document.getElementById("stage-slideover-sidebar");
+            const cs = getComputedStyle(sidebar);
+            const blur = cs.backdropFilter || cs.webkitBackdropFilter || "";
+            if (cs.backgroundColor !== "rgba(24, 24, 28, 0.52)" || !blur.includes("blur(19px)")) {
+              return null;
+            }
+            return { bg: cs.backgroundColor, blur };
+          })()`
+        ),
+      6000,
+      100,
+      "custom 80% sidebar frosting"
+    );
+    assert.equal(highFrostState.bg, "rgba(24, 24, 28, 0.52)");
+
+    // Restore default 45% frosting before subsequent layout checks
+    await cdp.evalInSession(
+      popupSession,
+      `(() => {
+        const el = document.querySelector('[data-testid="slider-sidebar-frosting"]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        setter.call(el, "45");
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      })()`
+    );
+    await waitFor(
+      async () =>
+        cdp.evalInSession(
+          chatSession,
+          `(() => {
+            const sidebar = document.getElementById("stage-slideover-sidebar");
+            return getComputedStyle(sidebar).backgroundColor === "rgba(24, 24, 28, 0.29)";
+          })()`
+        ),
+      6000,
+      100,
+      "restore 45% sidebar frosting"
+    );
+
     // Apply custom MP4 video URL
     await cdp.evalInSession(
       popupSession,
@@ -1086,8 +1193,8 @@ async function runTests() {
       })()`
     );
 
-    assert.equal(sidebarAudit.rootBg, "rgba(24, 24, 28, 0.42)");
-    assert.ok(sidebarAudit.rootBlur.includes("blur(12px)"));
+    assert.equal(sidebarAudit.rootBg, "rgba(24, 24, 28, 0.29)");
+    assert.ok(sidebarAudit.rootBlur.includes("blur(11px)"));
     assert.equal(sidebarAudit.shellInnerBg, "rgba(0, 0, 0, 0)");
     assert.equal(sidebarAudit.innerWrapBg, "rgba(0, 0, 0, 0)");
     assert.equal(sidebarAudit.navBg, "rgba(0, 0, 0, 0)");
@@ -1105,7 +1212,7 @@ async function runTests() {
     assert.equal(sidebarAudit.claimOfferBg, "rgb(33, 33, 33)");
     assert.equal(sidebarAudit.menuBg, "rgb(42, 42, 42)");
     assert.equal(sidebarAudit.scrimBg, "rgba(0, 0, 0, 0.5)");
-    assert.equal(sidebarAudit.popoverBg, "rgba(24, 24, 28, 0.42)");
+    assert.equal(sidebarAudit.popoverBg, "rgba(24, 24, 28, 0.29)");
     assert.equal(sidebarAudit.popoverNavBg, "rgba(0, 0, 0, 0)");
     assert.equal(sidebarAudit.modalBg, "rgb(40, 40, 40)");
     assert.equal(sidebarAudit.modalNavBg, "rgb(45, 45, 45)");

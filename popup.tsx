@@ -118,6 +118,7 @@ export default function IndexPopup() {
   const pendingPartialRef = useRef<Partial<CanvasConfig> | null>(null);
   const isFlushingRef = useRef(false);
   const activeTabIdRef = useRef<number | null>(null);
+  const lastFrostingRef = useRef<number>(DEFAULT_CONFIG.sidebarFrosting);
   const cfgRef = useRef<CanvasConfig>(DEFAULT_CONFIG);
   cfgRef.current = cfg;
   activeTabIdRef.current = activeTabId;
@@ -217,12 +218,19 @@ export default function IndexPopup() {
       mainImageOpacity: cfg.mainImageOpacity,
       blurAmount: cfg.blurAmount,
       gradientOpacity: cfg.gradientOpacity,
+      sidebarFrosting: cfg.sidebarFrosting,
       hasOverride: Boolean(
         currentChatKey && cfg.chatBackgrounds[currentChatKey]
       ),
       entry: null
     };
   }, [cfg, currentChatKey, effectiveScope]);
+
+  if (activeVisuals.sidebarFrosting > 0) {
+    lastFrostingRef.current = activeVisuals.sidebarFrosting;
+  }
+
+  const isSidebarClean = activeVisuals.sidebarFrosting <= 0;
 
   const currentChatHasOverride = Boolean(
     currentChatKey && cfg.chatBackgrounds[currentChatKey]
@@ -311,6 +319,8 @@ export default function IndexPopup() {
             blurAmount: prevEntry?.blurAmount ?? visuals.blurAmount,
             gradientOpacity:
               prevEntry?.gradientOpacity ?? visuals.gradientOpacity,
+            sidebarFrosting:
+              prevEntry?.sidebarFrosting ?? visuals.sidebarFrosting,
             updatedAt: Date.now()
           }
         }
@@ -324,7 +334,11 @@ export default function IndexPopup() {
   }
 
   function updateSliderInActiveScope(
-    field: "mainImageOpacity" | "blurAmount" | "gradientOpacity",
+    field:
+      | "mainImageOpacity"
+      | "blurAmount"
+      | "gradientOpacity"
+      | "sidebarFrosting",
     value: number
   ) {
     const latest = cfgRef.current;
@@ -350,6 +364,10 @@ export default function IndexPopup() {
               field === "gradientOpacity"
                 ? value
                 : prevEntry?.gradientOpacity ?? visuals.gradientOpacity,
+            sidebarFrosting:
+              field === "sidebarFrosting"
+                ? value
+                : prevEntry?.sidebarFrosting ?? visuals.sidebarFrosting,
             updatedAt: Date.now()
           }
         }
@@ -712,6 +730,63 @@ export default function IndexPopup() {
             }
           />
         </label>
+
+        <div className="sidebar-control-group">
+          <div className="slider-meta">
+            <span>Sidebar Style</span>
+            <div className="sidebar-mode-pills" role="group" aria-label="Sidebar style">
+              <button
+                type="button"
+                data-testid="sidebar-mode-clean"
+                className={`sidebar-mode-btn ${isSidebarClean ? "active" : ""}`}
+                onClick={() => updateSliderInActiveScope("sidebarFrosting", 0)}>
+                Clean
+              </button>
+              <button
+                type="button"
+                data-testid="sidebar-mode-frosted"
+                className={`sidebar-mode-btn ${!isSidebarClean ? "active" : ""}`}
+                onClick={() =>
+                  updateSliderInActiveScope(
+                    "sidebarFrosting",
+                    lastFrostingRef.current > 0
+                      ? lastFrostingRef.current
+                      : DEFAULT_CONFIG.sidebarFrosting
+                  )
+                }>
+                Frosted
+              </button>
+            </div>
+          </div>
+
+          <label className="slider-row">
+            <div className="slider-meta">
+              <span>Sidebar Frosting</span>
+              <span
+                className="slider-value"
+                data-testid="sidebar-frosting-value">
+                {isSidebarClean
+                  ? "Clean (0%)"
+                  : `${activeVisuals.sidebarFrosting}%`}
+              </span>
+            </div>
+            <input
+              type="range"
+              className="range-input"
+              data-testid="slider-sidebar-frosting"
+              min={0}
+              max={100}
+              step={1}
+              value={activeVisuals.sidebarFrosting}
+              onChange={(e) =>
+                updateSliderInActiveScope(
+                  "sidebarFrosting",
+                  parseInt(e.target.value, 10)
+                )
+              }
+            />
+          </label>
+        </div>
       </section>
 
       <section className="panel-section">

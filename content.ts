@@ -353,13 +353,45 @@ function ensureBackdropElement(): HTMLDivElement | null {
   return backdropEl;
 }
 
+function applySidebarFrosting(
+  sidebarFrosting: number,
+  theme: "dark" | "light"
+): void {
+  const html = document.documentElement;
+  if (!html) return;
+
+  if (sidebarFrosting <= 0) {
+    html.style.setProperty("--canvas-sidebar-bg", "transparent");
+    html.style.setProperty("--canvas-sidebar-blur", "none");
+    return;
+  }
+
+  const ratio = Math.min(1, Math.max(0, sidebarFrosting / 100));
+  const blurPx = Math.max(1, Math.round(ratio * 24));
+  const alpha = Number((ratio * 0.65).toFixed(2));
+  const bg =
+    theme === "dark"
+      ? `rgba(24, 24, 28, ${alpha})`
+      : `rgba(255, 255, 255, ${alpha})`;
+
+  html.style.setProperty("--canvas-sidebar-bg", bg);
+  html.style.setProperty("--canvas-sidebar-blur", `blur(${blurPx}px)`);
+}
+
+function clearSidebarFrosting(): void {
+  const html = document.documentElement;
+  if (!html) return;
+  html.style.removeProperty("--canvas-sidebar-bg");
+  html.style.removeProperty("--canvas-sidebar-blur");
+}
+
 function applyVisualsToBackdrop(
   backdrop: HTMLDivElement,
   visuals: EffectiveVisuals,
   theme: "dark" | "light"
 ): void {
   const wantVideo = isVideoUrl(visuals.backgroundImageUrl);
-  const signature = `${wantVideo ? "v" : "i"}|${visuals.backgroundImageUrl}|${visuals.mainImageOpacity}|${visuals.blurAmount}|${visuals.gradientOpacity}|${theme}`;
+  const signature = `${wantVideo ? "v" : "i"}|${visuals.backgroundImageUrl}|${visuals.mainImageOpacity}|${visuals.blurAmount}|${visuals.gradientOpacity}|${visuals.sidebarFrosting}|${theme}`;
 
   if (
     signature === lastVisualSignature &&
@@ -368,6 +400,8 @@ function applyVisualsToBackdrop(
   ) {
     return;
   }
+
+  applySidebarFrosting(visuals.sidebarFrosting, theme);
 
   const existingMedia =
     mediaEl && mediaEl.isConnected
@@ -486,6 +520,7 @@ function reconcileDom(): void {
 
     if (!currentConfig.enabled) {
       removeRootClasses();
+      clearSidebarFrosting();
       (backdropEl ?? document.getElementById(BACKDROP_ELEMENT_ID))?.remove();
       removeStyleElement();
       clearDynamicAttributes();

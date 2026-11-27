@@ -82,18 +82,18 @@ html.${ROOT_ENABLED_CLASS} body {
 html.${ROOT_ENABLED_CLASS}.${ROOT_DARK_CLASS} #${GRADIENT_ELEMENT_ID} {
   background: radial-gradient(
     ellipse at 50% 25%,
-    rgba(18, 19, 24, 0.36) 0%,
-    rgba(12, 13, 18, 0.72) 62%,
-    rgba(8, 9, 13, 0.88) 100%
+    rgba(18, 19, 24, 0.28) 0%,
+    rgba(12, 13, 18, 0.56) 62%,
+    rgba(8, 9, 13, 0.74) 100%
   ) !important;
 }
 
 html.${ROOT_ENABLED_CLASS}.${ROOT_LIGHT_CLASS} #${GRADIENT_ELEMENT_ID} {
   background: radial-gradient(
     ellipse at 50% 25%,
-    rgba(255, 255, 255, 0.42) 0%,
-    rgba(246, 247, 250, 0.76) 62%,
-    rgba(236, 239, 245, 0.90) 100%
+    rgba(255, 255, 255, 0.36) 0%,
+    rgba(246, 247, 250, 0.64) 62%,
+    rgba(236, 239, 245, 0.80) 100%
   ) !important;
 }
 
@@ -201,7 +201,7 @@ html.${ROOT_ENABLED_CLASS} :where(
   background-image: none !important;
 }
 
-/* Unified frosted-glass sidebar (desktop slide-over, mobile popover, and fallback nav) */
+/* Configurable sidebar surface: Clean (0% / transparent) or Frosted Glass (1%–100%) */
 html.${ROOT_ENABLED_CLASS} :where(
   #stage-slideover-sidebar,
   #stage-popover-sidebar,
@@ -217,19 +217,9 @@ html.${ROOT_ENABLED_CLASS} :where(nav[aria-label="Chat history"]):not(#stage-sli
   --bg-secondary: transparent !important;
   background: none !important;
   background-image: none !important;
-  background-color: rgba(255, 255, 255, 0.42) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-}
-
-html.${ROOT_ENABLED_CLASS}.${ROOT_DARK_CLASS} :where(
-  #stage-slideover-sidebar,
-  #stage-popover-sidebar,
-  [data-testid="sidebar"],
-  [data-testid="stage-sidebar"]
-),
-html.${ROOT_ENABLED_CLASS}.${ROOT_DARK_CLASS} :where(nav[aria-label="Chat history"]):not(#stage-slideover-sidebar *):not(#stage-popover-sidebar *):not([data-testid="sidebar"] *):not([data-testid="stage-sidebar"] *) {
-  background-color: rgba(24, 24, 28, 0.42) !important;
+  background-color: var(--canvas-sidebar-bg, transparent) !important;
+  backdrop-filter: var(--canvas-sidebar-blur, none) !important;
+  -webkit-backdrop-filter: var(--canvas-sidebar-blur, none) !important;
 }
 
 /* Inner structural sidebar layers stay transparent (no opaque slabs, header seams, or nested blur) */
@@ -243,12 +233,14 @@ html.${ROOT_ENABLED_CLASS} :where(
   nav,
   aside,
   header,
+  footer,
   #sidebar-header,
   #history,
   #stage-sidebar-tiny-bar,
   [class*="sidebar-"],
-  [class*="sticky"]
-):not(a):not(button):not([role="menu"]):not([role="dialog"]) {
+  [class*="sticky"],
+  [class*="bg-gradient"]
+):not(a):not(button):not([role="button"]):not([role="menu"]):not([role="dialog"]) {
   --sidebar-surface-primary: transparent !important;
   --sidebar-surface: transparent !important;
   --sidebar-bg: transparent !important;
@@ -267,7 +259,7 @@ html.${ROOT_ENABLED_CLASS} :where(
   #stage-slideover-sidebar > div > div,
   #stage-popover-sidebar > div,
   nav[aria-label="Chat history"] > div
-):not([role="menu"]):not([role="dialog"]):not(a):not(button) {
+):not([role="menu"]):not([role="dialog"]):not(a):not(button):not([role="button"]) {
   background: transparent !important;
   background-color: transparent !important;
   background-image: none !important;

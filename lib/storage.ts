@@ -17,6 +17,7 @@ export const DEFAULT_CONFIG: CanvasConfig = {
   mainImageOpacity: 0.72,
   blurAmount: 0,
   gradientOpacity: 0.65,
+  sidebarFrosting: 45,
   savedBackgrounds: [],
   chatBackgrounds: {}
 };
@@ -72,6 +73,14 @@ function sanitizeChatEntry(
       0,
       1,
       DEFAULT_CONFIG.gradientOpacity
+    );
+  }
+  if (typeof obj.sidebarFrosting === "number") {
+    entry.sidebarFrosting = clampNumber(
+      obj.sidebarFrosting,
+      0,
+      100,
+      DEFAULT_CONFIG.sidebarFrosting
     );
   }
   if (typeof obj.updatedAt === "number" && Number.isFinite(obj.updatedAt)) {
@@ -140,6 +149,12 @@ export function normalizeConfig(raw: unknown): CanvasConfig {
       0,
       1,
       DEFAULT_CONFIG.gradientOpacity
+    ),
+    sidebarFrosting: clampNumber(
+      Number(obj.sidebarFrosting),
+      0,
+      100,
+      DEFAULT_CONFIG.sidebarFrosting
     ),
     savedBackgrounds: Array.from(savedSet),
     chatBackgrounds
@@ -248,6 +263,7 @@ export function resolveEffectiveVisuals(
       mainImageOpacity: cfg.mainImageOpacity,
       blurAmount: cfg.blurAmount,
       gradientOpacity: cfg.gradientOpacity,
+      sidebarFrosting: cfg.sidebarFrosting,
       hasOverride: false,
       entry: null
     };
@@ -267,6 +283,10 @@ export function resolveEffectiveVisuals(
       typeof entry.gradientOpacity === "number"
         ? clampNumber(entry.gradientOpacity, 0, 1, cfg.gradientOpacity)
         : cfg.gradientOpacity,
+    sidebarFrosting:
+      typeof entry.sidebarFrosting === "number"
+        ? clampNumber(entry.sidebarFrosting, 0, 100, cfg.sidebarFrosting)
+        : cfg.sidebarFrosting,
     hasOverride: true,
     entry
   };
