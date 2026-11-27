@@ -263,7 +263,12 @@ function verifyManifestV3Build() {
   assert.equal(manifest.manifest_version, 3, "manifest_version must be 3");
   assert.equal(manifest.name, "Canvas for ChatGPT");
   assert.equal(manifest.version, pkg.version);
-  assert.equal(manifest.version_name, "v3.3");
+  assert.equal(manifest.version_name, "v3.4");
+  assert.equal(
+    manifest.browser_specific_settings,
+    undefined,
+    "Chromium manifest should not contain browser_specific_settings"
+  );
 
   const versionParts = String(manifest.version || "").split(".");
   assert.ok(
@@ -317,7 +322,44 @@ function verifyManifestV3Build() {
     fs.existsSync(path.join(DIST_DIR, optionsPage)),
     "Missing built options HTML"
   );
-  console.log("  ✓ Manifest V3 build output verified");
+
+  // Verify Firefox MV2 build if present
+  const ffDistDir = path.join(ROOT_DIR, "build", "firefox-mv2-prod");
+  const ffManifestPath = path.join(ffDistDir, "manifest.json");
+  assert.ok(
+    fs.existsSync(ffManifestPath),
+    `Missing built Firefox manifest at ${ffManifestPath}`
+  );
+  const ffManifest = JSON.parse(fs.readFileSync(ffManifestPath, "utf8"));
+  assert.equal(ffManifest.manifest_version, 2, "Firefox manifest_version must be 2");
+  assert.equal(ffManifest.version, pkg.version);
+  assert.equal(
+    ffManifest.version_name,
+    undefined,
+    "Firefox manifest must not include Chromium version_name"
+  );
+  assert.ok(
+    ffManifest.browser_specific_settings?.gecko?.id,
+    "Missing browser_specific_settings.gecko.id in Firefox manifest"
+  );
+  assert.deepEqual(
+    ffManifest.browser_specific_settings?.gecko?.data_collection_permissions?.required,
+    ["none"],
+    "Firefox manifest must declare data_collection_permissions required: ['none']"
+  );
+  assert.ok(
+    ffManifest.permissions.includes("https://chatgpt.com/*") &&
+      ffManifest.permissions.includes("https://chat.openai.com/*"),
+    "Firefox MV2 manifest missing ChatGPT host permissions"
+  );
+  assert.ok(ffManifest.browser_action?.default_popup, "Missing Firefox browser_action.default_popup");
+  for (const jsFile of ffManifest.content_scripts?.[0]?.js || []) {
+    assert.ok(
+      fs.existsSync(path.join(ffDistDir, jsFile)),
+      `Missing Firefox content script file ${jsFile}`
+    );
+  }
+  console.log("  ✓ Chromium MV3 & Firefox MV2 build outputs verified");
 }
 
 async function launchChromeWithCdp(chromePath) {

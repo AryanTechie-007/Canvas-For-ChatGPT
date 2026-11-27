@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Canvas for ChatGPT — Custom Wallpapers, Blur &amp; Frosted Sidebars</title>
+  <meta name="description" content="Transform ChatGPT into a zero-lag personalized workspace with custom images, animated GIFs, video loops, blur/opacity controls, and Clean or Frosted sidebars for Chrome & Firefox." />
+  <link rel="icon" type="image/png" href="assets/icon-128.png" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0c0e13;
+      --surface: #141720;
+      --surface-2: #1b1f2b;
+      --border: rgba(255, 255, 255, 0.1);
+      --text: #f3f6fa;
+      --muted: #9ba5b8;
+      --accent: #10a37f;
+      --accent-hover: #18b88f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      line-height: 1.6;
+    }
+    .container { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+    nav {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 0; border-bottom: 1px solid var(--border);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; color: var(--text); }
+    .brand img { width: 32px; height: 32px; border-radius: 8px; }
+    .nav-links { display: flex; gap: 20px; align-items: center; font-size: 14px; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-weight: 500; }
+    .nav-links a:hover { color: var(--text); }
+    .hero {
+      text-align: center; padding: 64px 0 44px;
+      background: radial-gradient(circle at top center, rgba(16, 163, 127, 0.18), transparent 55%);
+    }
+    .pill {
+      display: inline-block; padding: 5px 12px; border-radius: 999px;
+      background: rgba(16, 163, 127, 0.16); border: 1px solid rgba(16, 163, 127, 0.4);
+      color: #7ee8c9; font-size: 12px; font-weight: 600; margin-bottom: 16px;
+    }
+    h1 {
+      margin: 0 auto 14px; max-width: 760px; font-size: clamp(32px, 5vw, 52px);
+      line-height: 1.1; letter-spacing: -0.025em;
+    }
+    .subtitle {
+      margin: 0 auto 28px; max-width: 650px; font-size: 17px; color: var(--muted);
+    }
+    .cta-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px;
+      border-radius: 10px; font-size: 14px; font-weight: 600; text-decoration: none;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+      transition: background 140ms ease, transform 120ms ease;
+    }
+    .btn:hover { background: var(--surface-2); transform: translateY(-1px); }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #f6fffb; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .hero-banner {
+      margin-top: 38px; border-radius: 18px; overflow: hidden;
+      border: 1px solid var(--border); box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+    }
+    .hero-banner img { width: 100%; display: block; }
+    section { padding: 48px 0; }
+    h2 { font-size: 26px; margin: 0 0 20px; letter-spacing: -0.015em; }
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px;
+    }
+    .card h3 { margin: 0 0 8px; font-size: 16px; }
+    .card p { margin: 0; font-size: 14px; color: var(--muted); }
+    .shots {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 18px;
+    }
+    .shot {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; overflow: hidden;
+    }
+    .shot img { width: 100%; display: block; }
+    .shot figcaption { padding: 12px 16px; font-size: 13px; color: var(--muted); }
+    .install-steps {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 24px;
+    }
+    .install-steps ol { margin: 10px 0 0; padding-left: 20px; color: #d7deea; }
+    .install-steps li { margin-bottom: 6px; }
+    code {
+      background: var(--surface-2); padding: 2px 6px; border-radius: 5px;
+      border: 1px solid var(--border); font-size: 0.9em; color: #b7f5e1;
+    }
+    footer {
+      border-top: 1px solid var(--border); padding: 28px 0 40px;
+      display: flex; flex-wrap: wrap; justify-content: space-between;
+      gap: 12px; font-size: 13px; color: var(--muted);
+    }
+    footer a { color: #7ee8c9; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a class="brand" href="./">
+        <img src="assets/icon-128.png" alt="Canvas for ChatGPT" />
+        <span>Canvas for ChatGPT</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#screenshots">Screenshots</a>
+        <a href="#install">Install</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="https://github.com/AryanTechie-007/Canvas-For-ChatGPT">GitHub</a>
+      </div>
+    </nav>
+  </div>
+
+  <header class="hero">
+    <div class="container">
+      <span class="pill">v3.4 • Chromium &amp; Firefox • 100% Client-Side</span>
+      <h1>Make ChatGPT Yours with Zero-Lag Custom Backdrops</h1>
+      <p class="subtitle">
+        Personalize <code>chatgpt.com</code> and <code>chat.openai.com</code> with offline presets,
+        local images, animated GIFs, looping MP4/WEBM videos, blur &amp; opacity sliders, and Clean or Frosted sidebars.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases/latest/download/canvas-for-chatgpt-v3.4.zip">
+          Download for Chrome / Brave / Edge / Opera
+        </a>
+        <a class="btn" href="https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases/latest/download/canvas-for-chatgpt-v3.4-firefox.zip">
+          Download for Firefox
+        </a>
+        <a class="btn" href="https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases/tag/v3.4">
+          All Releases
+        </a>
+      </div>
+
+      <div class="hero-banner">
+        <img src="assets/promo-marquee-1400x560.png" alt="Canvas for ChatGPT Hero Banner" />
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section id="features">
+      <h2>Designed for Speed &amp; Focus</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Zero-Lag Pure-CSS Engine</h3>
+          <p>Eliminates layout thrashing and DOM scans during AI token streaming and typing so responses stay instantaneous.</p>
+        </div>
+        <div class="card">
+          <h3>Clean or Frosted Sidebars</h3>
+          <p>Switch between a completely transparent <strong>Clean (0%)</strong> sidebar or adjust <strong>Sidebar Frosting (1%–100%)</strong> in real time.</p>
+        </div>
+        <div class="card">
+          <h3>Offline Presets &amp; Local Media</h3>
+          <p>Includes 4 instant bundled presets plus local file upload for images, animated GIFs, and looping MP4, WEBM, OGG, and MOV videos.</p>
+        </div>
+        <div class="card">
+          <h3>100% Private &amp; Client-Side</h3>
+          <p>Zero telemetry, zero analytics, and zero external API calls. Everything stays in your browser's local storage.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="screenshots">
+      <h2>Screenshots</h2>
+      <div class="shots">
+        <figure class="shot">
+          <img src="assets/screenshot-1-frosted-aurora.png" alt="Frosted Glass Sidebar with Aurora Preset" />
+          <figcaption>Frosted-glass sidebar with Northern Aurora backdrop &amp; rounded prompt composer.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="assets/screenshot-2-clean-space.png" alt="Clean Transparent Sidebar with Cosmic Nebula" />
+          <figcaption>Clean (0%) transparent sidebar showing the Cosmic Nebula wallpaper end-to-end.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="assets/screenshot-3-popup-controls.png" alt="Popup Visual Controls" />
+          <figcaption>Real-time popup controls for presets, uploads, opacity, blur, gradient, and sidebar frosting.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="install">
+      <h2>Quick Installation</h2>
+      <div class="grid">
+        <div class="install-steps">
+          <strong>Chrome, Brave, Edge, Opera, Vivaldi &amp; Arc</strong>
+          <ol>
+            <li>Download and extract <code>canvas-for-chatgpt-v3.4.zip</code>.</li>
+            <li>Open <code>chrome://extensions</code> (or <code>brave://extensions</code>, <code>edge://extensions</code>).</li>
+            <li>Enable <strong>Developer mode</strong>, click <strong>Load unpacked</strong>, and select the extracted folder.</li>
+          </ol>
+        </div>
+        <div class="install-steps">
+          <strong>Mozilla Firefox</strong>
+          <ol>
+            <li>Download <code>canvas-for-chatgpt-v3.4-firefox.zip</code>.</li>
+            <li>Open <code>about:debugging#/runtime/this-firefox</code> (for temporary loading) or install once signed via AMO.</li>
+            <li>Click <strong>Load Temporary Add-on…</strong> and select the ZIP or extracted <code>manifest.json</code>.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="container">
+    <footer>
+      <span>MIT License • Copyright © 2026 AryanTechie-007</span>
+      <span>
+        <a href="privacy.html">Privacy Policy</a> ·
+        <a href="https://github.com/AryanTechie-007/Canvas-For-ChatGPT">GitHub Repository</a>
+      </span>
+    </footer>
+  </div>
+</body>
+</html>

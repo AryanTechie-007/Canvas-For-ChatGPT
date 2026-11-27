@@ -10,7 +10,8 @@ Transform [ChatGPT](https://chatgpt.com/) into a calm, ultra-responsive workspac
 
 ## Features
 
-- **Zero-Lag CSS-First Engine (`v3.3`)**: Streamlined pure-CSS rendering pipeline that eliminates `getComputedStyle` and `getBoundingClientRect` DOM walks, attribute-thrashing observers, and heavy `:has()` layout scans during ChatGPT streaming and typing.
+- **Zero-Lag CSS-First Engine (`v3.4`)**: Streamlined pure-CSS rendering pipeline that eliminates `getComputedStyle` and `getBoundingClientRect` DOM walks, attribute-thrashing observers, and heavy `:has()` layout scans during ChatGPT streaming and typing.
+- **Cross-Browser Compatibility**: Dedicated packages for **Chromium** (Chrome, Brave, Edge, Opera, Vivaldi, Arc) and **Mozilla Firefox** (with full `browser_specific_settings.gecko` & `data_collection_permissions`).
 - **Bundled Offline Presets**: Four built-in client-side wallpapers ready instantaneously with zero network delay — *Twilight Peaks*, *Cosmic Nebula*, *Misty Pines*, and *Northern Aurora (Animated GIF)*.
 - **Local Media Uploads**: Upload static images, animated GIFs, or looping videos (`MP4`, `WEBM`, `OGG`, `MOV`) directly from your computer. Files are converted locally to data URLs and persisted in extension storage.
 - **Custom Web URLs & Saved Library**: Paste any direct image or video URL, apply it immediately, and manage your saved library with live thumbnail previews.
@@ -39,7 +40,7 @@ Transform [ChatGPT](https://chatgpt.com/) into a calm, ultra-responsive workspac
 
 ## Browser Installation Guide
 
-Download **`canvas-for-chatgpt-v3.3.zip`** from [GitHub Releases](https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases) and **extract the ZIP** into a permanent folder on your computer (do not delete that folder afterward—or if updating locally, replace/extract into your folder and click **Reload** (`↻`) on the extension card).
+Download **`canvas-for-chatgpt-v3.4.zip`** (for Chromium browsers) or **`canvas-for-chatgpt-v3.4-firefox.zip`** (for Firefox) from [GitHub Releases](https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases) and **extract the ZIP** into a permanent folder on your computer (do not delete that folder afterward—or if updating locally, replace/extract into your folder and click **Reload** (`↻`) on the extension card).
 
 ### Google Chrome
 1. Go to `chrome://extensions`
@@ -77,8 +78,14 @@ Download **`canvas-for-chatgpt-v3.3.zip`** from [GitHub Releases](https://github
 3. Click **Load unpacked** and select the extracted folder.
 4. Refresh `chatgpt.com` and open the extension from the toolbar / Site Control menu.
 
-### Mozilla Firefox & Safari
-- Not supported by this `.zip`: the packaged extension targets **Chromium Manifest V3** (`chrome-mv3`) and will not load directly in Safari or standard Firefox without a dedicated Firefox/Safari build.
+### Mozilla Firefox
+1. Download **`canvas-for-chatgpt-v3.4-firefox.zip`** from [GitHub Releases](https://github.com/AryanTechie-007/Canvas-For-ChatGPT/releases) (or build locally via `npm run build:firefox`).
+2. Open `about:debugging#/runtime/this-firefox` in Firefox (for local unpacked testing) or install the signed add-on via Firefox Add-ons (AMO).
+3. Click **Load Temporary Add-on…** and select `canvas-for-chatgpt-v3.4-firefox.zip` (or `build/firefox-mv2-prod/manifest.json`).
+4. Open or refresh `chatgpt.com`.
+
+### Safari
+- Not supported directly: the packaged builds target Chromium Manifest V3 (`chrome-mv3`) and Firefox WebExtension (`firefox-mv2`).
 
 ---
 
@@ -101,14 +108,15 @@ npm run dev
 # Type-check TypeScript sources
 npm run typecheck
 
-# Build production bundle
+# Build production bundles (Chromium & Firefox)
 npm run build
+npm run build:firefox
 
 # Run headless Chromium CDP verification & streaming lag benchmark suite
 npm test
 
-# Package extension zip
-npm run package
+# Package release zips (Chromium + Firefox)
+npm run package:all
 ```
 
 ### Architecture

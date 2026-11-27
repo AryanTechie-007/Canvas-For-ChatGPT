@@ -1,7 +1,7 @@
 {
   "name": "canvas-for-chatgpt",
   "displayName": "Canvas for ChatGPT",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "description": "Transform ChatGPT into your personal canvas with zero-lag rendering, bundled presets, local media uploads, custom URLs, customizable sidebar frosting, and real-time visual controls.",
   "author": "AryanTechie-007",
   "homepage": "https://github.com/AryanTechie-007/Canvas-For-ChatGPT",
@@ -15,8 +15,12 @@
   "license": "MIT",
   "scripts": {
     "dev": "plasmo dev",
+    "dev:firefox": "plasmo dev --target=firefox-mv2",
     "build": "plasmo build",
+    "build:firefox": "plasmo build --target=firefox-mv2",
     "package": "plasmo package",
+    "package:firefox": "plasmo package --target=firefox-mv2",
+    "package:all": "node scripts/package-releases.js",
     "typecheck": "tsc --noEmit",
     "test": "node test/run-browser-tests.js"
   },
@@ -38,7 +42,7 @@
     "typescript": "5.3.3"
   },
   "manifest": {
-    "version_name": "v3.3",
+    "version_name": "v3.4",
     "permissions": [
       "storage",
       "unlimitedStorage"
@@ -46,6 +50,17 @@
     "host_permissions": [
       "https://chatgpt.com/*",
       "https://chat.openai.com/*"
-    ]
+    ],
+    "browser_specific_settings": {
+      "gecko": {
+        "id": "canvas-for-chatgpt@aryantechie-007.github.io",
+        "strict_min_version": "140.0",
+        "data_collection_permissions": {
+          "required": [
+            "none"
+          ]
+        }
+      }
+    }
   }
 }
